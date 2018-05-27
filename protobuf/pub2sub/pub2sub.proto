@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package pub2sub;
+option go_package = "github.com/hpidcock/pub2sub/pkg/pub2subpb";
+
+message PublishRequest {
+    string id = 1;
+    int64 ts = 2;
+    bytes message = 3;
+    bool reliable = 4;
+    repeated string topic_ids = 5;
+}
+
+message PublishResponse {
+}
+
+service PublishService {
+    rpc Publish(PublishRequest) returns (PublishResponse);
+}
+
+message ReplicateRequest {
+    string id = 1;
+    int64 ts = 2;
+    bytes message = 3;
+    bool reliable = 4;
+    string topic_id = 5;
+
+    string range_begin = 6;
+    string range_end = 7;
+    int32 range_width = 8;
+}
+
+message ReplicateResponse {
+}
+
+service ReplicationService {
+    rpc Replicate(ReplicateRequest) returns (ReplicateResponse);
+}
+
+message StreamRequest {
+    string channel_id = 1;
+
+    // If reliable is false, server will ack messages
+    // on behalf of the client if send appears to succeed.
+    bool reliable = 2;
+}
+
+message StreamResponse {
+    string id = 1;
+    int64 ts = 2;
+    bytes message = 3;
+    bool reliable = 4;
+    string topic_id = 5;
+
+    // Empty if reliable is false.
+    string ack_id = 6;
+}
+
+message AckRequest {
+    string channel_id = 1;
+    string ack_id = 2;
+}
+
+message AckResponse {
+}
+
+message LeaseRequest {
+    string channel_id = 1;
+    string topic_id = 2;
+    int64 expire_in = 3;
+}
+
+message LeaseResponse {
+}
+
+service SubscribeService {
+    rpc Stream(StreamRequest) returns (stream StreamResponse);
+    rpc Ack(AckRequest) returns (AckResponse);
+    rpc Lease(LeaseRequest) returns (LeaseResponse);
+}
+
+message InternalPublishRequest {
+    string channel_id = 1;
+    string id = 2;
+    int64 ts = 3;
+    bytes message = 4;
+    bool reliable = 5;
+    string topic_id = 6;
+}
+
+message InternalPublishResponse {
+}
+
+message InternalAckRequest {
+    string channel_id = 1;
+    string ack_id = 2;
+}
+
+message InternalAckResponse {
+}
+
+message InternalEvictRequest {
+    string channel_id = 1;
+}
+
+message InternalEvictResponse {
+}
+
+service SubscribeInternalService {
+    rpc InternalPublish(InternalPublishRequest) returns (InternalPublishResponse);
+    rpc InternalAck(InternalAckRequest) returns (InternalAckResponse);
+    rpc InternalEvict(InternalEvictRequest) returns (InternalEvictResponse);
+}
