@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
@@ -29,6 +30,7 @@ type Provider struct {
 
 	redisClient *redis.Client
 	etcdClient  *etcd_clientv3.Client
+	quicClient  *http.Client
 
 	modelController *model.Controller
 	disc            *discovery.DiscoveryClient
@@ -171,6 +173,13 @@ func run(ctx context.Context) error {
 
 	provider := &Provider{
 		serverID: uuid.New(),
+		quicClient: &http.Client{
+			Transport: &h2quic.RoundTripper{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
 	}
 	provider.config, err = NewConfig()
 	if err != nil {

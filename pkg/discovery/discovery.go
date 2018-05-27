@@ -79,28 +79,17 @@ func (dc *DiscoveryClient) Broadcast(ctx context.Context, serviceName string,
 	}
 }
 
-type DiscoveryList struct {
+type DiscoveryCollection struct {
 	discoveryClient *DiscoveryClient
 	list            atomic.Value
 	watchLock       sync.Mutex
-}
-
-func NewDiscoveryList(discoveryClient *DiscoveryClient) (*DiscoveryList, error) {
-	dl := &DiscoveryList{
-		discoveryClient: discoveryClient,
-	}
-
-	return dl, nil
-}
-
-func (dl *DiscoveryList) GetList() map[uuid.UUID]string {
-	return dl.list.Load().(map[uuid.UUID]string)
+	toContainer     func(string, map[string]string) interface{}
 }
 
 // Watch should only be called once.
-func (dl *DiscoveryList) Watch(ctx context.Context, serviceName string) (errOut error) {
-	dl.watchLock.Lock()
-	defer dl.watchLock.Unlock()
+func (dc *DiscoveryCollection) Watch(ctx context.Context, serviceName string) (errOut error) {
+	dc.watchLock.Lock()
+	defer dc.watchLock.Unlock()
 
 	ctx, cancelFunc := context.WithCancel(ctx)
 	defer cancelFunc()
@@ -109,8 +98,8 @@ func (dl *DiscoveryList) Watch(ctx context.Context, serviceName string) (errOut 
 	beginKey := fmt.Sprintf("%s00000000-0000-0000-0000-000000000000", servicePrefix)
 	endKey := fmt.Sprintf("%sffffffff-ffff-ffff-ffff-ffffffffffff", servicePrefix)
 
-	watchChan := dl.discoveryClient.watchClient.Watch(ctx, beginKey, etcd_clientv3.WithRange(endKey))
-	res, err := dl.discoveryClient.kvClient.Get(ctx, beginKey, etcd_clientv3.WithRange(endKey))
+	watchChan := dc.discoveryClient.watchClient.Watch(ctx, beginKey, etcd_clientv3.WithRange(endKey))
+	res, err := dc.discoveryClient.kvClient.Get(ctx, beginKey, etcd_clientv3.WithRange(endKey))
 	if err != nil {
 		return err
 	}
@@ -120,13 +109,7 @@ func (dl *DiscoveryList) Watch(ctx context.Context, serviceName string) (errOut 
 		current[string(kv.Key)] = string(kv.Value)
 	}
 
-	update := func() {
-		dl.list.Store(funk.Map(current, func(key string, value string) (uuid.UUID, string) {
-			id := strings.TrimPrefix(key, servicePrefix)
-			return uuid.Must(uuid.Parse(id)), value
-		}))
-	}
-	update()
+	dc.list.Store(dc.toContainer(servicePrefix, current))
 
 	for {
 		select {
@@ -146,7 +129,54 @@ func (dl *DiscoveryList) Watch(ctx context.Context, serviceName string) (errOut 
 				}
 			}
 
-			update()
+			dc.list.Store(dc.toContainer(servicePrefix, current))
 		}
 	}
+}
+
+type DiscoveryList struct {
+	DiscoveryCollection
+}
+
+type DiscoveryMap struct {
+	DiscoveryCollection
+}
+
+func NewDiscoveryList(discoveryClient *DiscoveryClient) (*DiscoveryList, error) {
+	dl := &DiscoveryList{
+		DiscoveryCollection: DiscoveryCollection{
+			discoveryClient: discoveryClient,
+			toContainer: func(servicePrefix string, current map[string]string) interface{} {
+				return funk.Map(current, func(key string, value string) string {
+					return value
+				})
+			},
+		},
+	}
+
+	return dl, nil
+}
+
+func (dl *DiscoveryList) GetList() []string {
+	return dl.list.Load().([]string)
+}
+
+func NewDiscoveryMap(discoveryClient *DiscoveryClient) (*DiscoveryMap, error) {
+	dl := &DiscoveryMap{
+		DiscoveryCollection: DiscoveryCollection{
+			discoveryClient: discoveryClient,
+			toContainer: func(servicePrefix string, current map[string]string) interface{} {
+				return funk.Map(current, func(key string, value string) (uuid.UUID, string) {
+					id := strings.TrimPrefix(key, servicePrefix)
+					return uuid.Must(uuid.Parse(id)), value
+				})
+			},
+		},
+	}
+
+	return dl, nil
+}
+
+func (dm *DiscoveryMap) GetMap() map[uuid.UUID]string {
+	return dm.list.Load().(map[uuid.UUID]string)
 }

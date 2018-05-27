@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
@@ -20,6 +21,8 @@ import (
 	"github.com/hpidcock/pub2sub/pkg/discovery"
 	"github.com/hpidcock/pub2sub/pkg/model"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
+	"github.com/hpidcock/pub2sub/pkg/queue"
+	"github.com/hpidcock/pub2sub/pkg/queue_sqs"
 )
 
 type Provider struct {
@@ -28,10 +31,13 @@ type Provider struct {
 
 	redisClient *redis.Client
 	etcdClient  *etcd_clientv3.Client
+	quicClient  *http.Client
 
 	modelController *model.Controller
 	disc            *discovery.DiscoveryClient
 	nextLayer       *discovery.DiscoveryList
+	subscriberLayer *discovery.DiscoveryMap
+	queueProvider   queue.QueueProviderInterface
 }
 
 func (p *Provider) runGRPCServer(ctx context.Context) error {
@@ -110,7 +116,7 @@ func (p *Provider) runDiscoveryBroadcast(ctx context.Context) error {
 func (p *Provider) runLayerDiscovery(ctx context.Context) error {
 	if p.config.TerminationLayer {
 		log.Printf("etcd: discovering subscribers")
-		return p.nextLayer.Watch(ctx, "subscribers")
+		return p.subscriberLayer.Watch(ctx, "subscribers")
 	} else {
 		nextLayerIndex := p.config.Layer + 1
 		serviceName := fmt.Sprintf("replicators-%d", nextLayerIndex)
@@ -124,6 +130,11 @@ func (p *Provider) init() error {
 	p.redisClient = redis.NewClient(&redis.Options{
 		Addr: p.config.RedisAddress,
 	})
+
+	p.queueProvider, err = queue_sqs.NewSQSQueueProvider()
+	if err != nil {
+		return err
+	}
 
 	p.modelController, err = model.NewController(nil, p.redisClient)
 	if err != nil {
@@ -146,9 +157,16 @@ func (p *Provider) init() error {
 		return err
 	}
 
-	p.nextLayer, err = discovery.NewDiscoveryList(p.disc)
-	if err != nil {
-		return err
+	if p.config.TerminationLayer {
+		p.subscriberLayer, err = discovery.NewDiscoveryMap(p.disc)
+		if err != nil {
+			return err
+		}
+	} else {
+		p.nextLayer, err = discovery.NewDiscoveryList(p.disc)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -178,6 +196,13 @@ func run(ctx context.Context) error {
 
 	provider := &Provider{
 		serverID: uuid.New(),
+		quicClient: &http.Client{
+			Transport: &h2quic.RoundTripper{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
 	}
 	provider.config, err = NewConfig()
 	if err != nil {

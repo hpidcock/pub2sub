@@ -85,8 +85,23 @@ func (m *Controller) ReleaseQueue(ctx context.Context, queueID string) error {
 	return nil
 }
 
-func (m *Controller) GetTopicWidth(ctx context.Context, topicID string) (int64, error) {
-	return m.redisClient.ZCard(topicID).Result()
+func (m *Controller) GetTopicsWidth(ctx context.Context, topicIDs []string) ([]int64, error) {
+	cmds := make([]*redis.IntCmd, len(topicIDs))
+	pipeline := m.redisClient.Pipeline()
+	for k, topicID := range topicIDs {
+		cmds[k] = pipeline.ZCard(topicID)
+	}
+	_, err := pipeline.Exec()
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]int64, len(topicIDs))
+	for k, v := range cmds {
+		results[k] = v.Val()
+	}
+
+	return results, nil
 }
 
 func (m *Controller) ScanTopic(ctx context.Context, topicID string,
