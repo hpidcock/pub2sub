@@ -3,7 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
+	"time"
+
+	"github.com/gogo/protobuf/proto"
+	"github.com/hashicorp/go-multierror"
 
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
@@ -11,6 +16,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/hpidcock/pub2sub/pkg/model"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
 )
 
@@ -47,13 +53,13 @@ func partitionUUID(a uuid.UUID, b uuid.UUID) (left uuid.UUID, right uuid.UUID, o
 
 func (p *Provider) Replicate(ctx context.Context, req *pb.ReplicateRequest) (*pb.ReplicateResponse, error) {
 	if p.config.TerminationLayer {
-		return p.replicateFoward(ctx, req)
+		return p.replicateForward(ctx, req)
 	} else {
 		return p.replicateDown(ctx, req)
 	}
 }
 
-func (p *Provider) replicateFoward(ctx context.Context,
+func (p *Provider) replicateForward(ctx context.Context,
 	req *pb.ReplicateRequest) (*pb.ReplicateResponse, error) {
 	var err error
 	_, err = uuid.Parse(req.RangeBegin)
@@ -75,36 +81,11 @@ func (p *Provider) replicateFoward(ctx context.Context,
 		return &pb.ReplicateResponse{}, nil
 	}
 
-	// TODO: GetChannels
-
-	subscribers := p.subscriberLayer.GetMap()
-
 	eg, egCtx := errgroup.WithContext(ctx)
 	for _, v := range channelIDs {
 		channelID := v
-
 		eg.Go(func() error {
-			address := replicators[rand.Int()%len(replicators)]
-			url := fmt.Sprintf("https://%s", address)
-			rc := pb.NewSubscribeInternalServiceProtobufClient(url, p.quicClient)
-			rq := pb.InternalPublishRequest{
-				ChannelId: channelID,
-				Id:        req.Id,
-				Message:   req.Message,
-				Reliable:  req.Reliable,
-				TopicId:   req.TopicId,
-				Ts:        req.Ts,
-			}
-
-			_, err = rc.InternalPublish(egCtx, &rq)
-			if req.Reliable == false {
-				// TODO: Also check to see if the channel is unreliable.
-				return nil
-			} else if err != nil {
-				return err
-			}
-			// TODO: On error try and queue.
-			return nil
+			return p.forwardMessage(egCtx, channelID, req)
 		})
 	}
 
@@ -134,6 +115,10 @@ func (p *Provider) replicateDown(ctx context.Context,
 	}
 
 	replicators := p.nextLayer.GetList()
+	if len(replicators) == 0 {
+		return nil, status.Error(codes.Unavailable, "no nodes")
+	}
+
 	minToDivide := 100 // TODO: Configure
 	rangeWidth := int(req.RangeWidth)
 
@@ -177,7 +162,11 @@ func (p *Provider) replicateDown(ctx context.Context,
 				RangeWidth: int32(rangeWidth),
 			}
 			_, err = rc.Replicate(egCtx, &rq)
-			if err != nil {
+			if err != nil && req.Reliable == false {
+				// TODO: Handle non-critical error
+				log.Print(err)
+				return nil
+			} else if err != nil {
 				return err
 			}
 			return nil
@@ -190,4 +179,91 @@ func (p *Provider) replicateDown(ctx context.Context,
 	}
 
 	return &pb.ReplicateResponse{}, nil
+}
+
+func (p *Provider) forwardMessage(ctx context.Context, channelID string,
+	req *pb.ReplicateRequest) (errOut error) {
+	channelModel, err := p.modelController.GetChannel(ctx, channelID)
+	if err == model.ErrNoChannel {
+		log.Print("no channel %s", channelID)
+		return nil
+	} else if err != nil && req.Reliable == false {
+		// TODO: Handle non-critical error
+		log.Print(err)
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	if time.Now().UTC().After(channelModel.ExpireAt) {
+		// Expired channel
+		log.Print("channel expired")
+		return nil
+	}
+
+	rq := pb.InternalPublishRequest{
+		ChannelId: channelID,
+		Id:        req.Id,
+		Message:   req.Message,
+		Reliable:  req.Reliable,
+		TopicId:   req.TopicId,
+		Ts:        req.Ts,
+	}
+
+	if channelModel.QueueID != "" {
+		// Channel is reliable, try to queue.
+		defer func() {
+			if errOut == nil {
+				return
+			}
+
+			data, err := proto.Marshal(&rq)
+			if err != nil {
+				errOut = multierror.Append(errOut, err)
+				return
+			}
+
+			err = p.queueProvider.PublishQueue(ctx,
+				channelModel.QueueID, data)
+			if err != nil {
+				errOut = multierror.Append(errOut, err)
+				return
+			}
+		}()
+	}
+
+	channelServerID, err := uuid.Parse(channelModel.ServerID)
+	if err != nil && req.Reliable == false {
+		// TODO: Handle non-critical error
+		log.Print(err)
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	subscriberNodes := p.subscriberLayer.GetMap()
+	address, ok := subscriberNodes[channelServerID]
+	if ok == false && req.Reliable == false {
+		// TODO: Handle non-critical error
+		log.Print(err)
+		return nil
+	} else if ok == false {
+		return status.Error(codes.NotFound, "node not found")
+	}
+
+	url := fmt.Sprintf("https://%s", address)
+	rc := pb.NewSubscribeInternalServiceProtobufClient(url, p.quicClient)
+
+	timeoutCtx, cancelFunc := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelFunc()
+	_, err = rc.InternalPublish(timeoutCtx, &rq)
+	if err != nil && req.Reliable == false {
+		// TODO: Handle non-critical error
+		log.Print(err)
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	return nil
 }

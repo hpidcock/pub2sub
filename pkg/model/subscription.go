@@ -108,8 +108,8 @@ func (m *Controller) ScanTopic(ctx context.Context, topicID string,
 	begin string, end string) ([]string, error) {
 	pipeline := m.redisClient.Pipeline()
 	res := pipeline.ZRangeByLex(topicID, redis.ZRangeBy{
-		Min: begin,
-		Max: end,
+		Min: "(" + begin,
+		Max: "(" + end,
 	})
 	_, err := pipeline.Exec()
 	if err != nil {
@@ -189,6 +189,17 @@ func (m *Controller) AcquireChannel(ctx context.Context,
 			return err
 		}
 
+		expireAtTs, err := tx.HGet(channelID, "expire_at").Int64()
+		if err == redis.Nil {
+		} else if err != nil {
+			return err
+		}
+		oldChannel.ExpireAt = time.Unix(expireAtTs, 0)
+		newChannel.ExpireAt = time.Now().UTC().Add(1 * time.Minute)
+		if oldChannel.ExpireAt.After(newChannel.ExpireAt) {
+			newChannel.ExpireAt = oldChannel.ExpireAt
+		}
+
 		if reliable && oldChannel.QueueID == "" {
 			newChannel.QueueID, err = m.AcquireQueue(ctx)
 			if err != nil {
@@ -215,6 +226,7 @@ func (m *Controller) AcquireChannel(ctx context.Context,
 			} else if newChannel.QueueID != oldChannel.QueueID {
 				pipeline.HSet(channelID, "queue_id", newChannel.QueueID)
 			}
+			pipeline.HSet(channelID, "expire_at", newChannel.ExpireAt.Unix())
 			return nil
 		})
 
@@ -271,13 +283,17 @@ func (m *Controller) GetChannel(ctx context.Context,
 	expireAt := pipeline.HGet(channelID, "expire_at")
 	_, err := pipeline.Exec()
 	if err == redis.Nil {
-		return nil, ErrNoChannel
 	} else if err != nil {
 		return nil, err
 	}
 
 	channel.ServerID = serverID.Val()
 	channel.QueueID = queueID.Val()
+	if channel.ServerID == "" &&
+		channel.QueueID == "" {
+		return nil, ErrNoChannel
+	}
+
 	expireAtTs, err := expireAt.Int64()
 	if err != nil {
 		return nil, err

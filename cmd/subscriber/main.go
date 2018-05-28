@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
@@ -32,10 +33,11 @@ type Provider struct {
 
 	redisClient *redis.Client
 	etcdClient  *etcd_clientv3.Client
+	quicClient  *http.Client
 
 	modelController *model.Controller
 	disc            *discovery.DiscoveryClient
-	subscribers     *discovery.DiscoveryList
+	subscribers     *discovery.DiscoveryMap
 
 	router        *router.Router
 	queueProvider queue.QueueProviderInterface
@@ -155,7 +157,7 @@ func (p *Provider) init() error {
 		return err
 	}
 
-	p.subscribers, err = discovery.NewDiscoveryList(p.disc)
+	p.subscribers, err = discovery.NewDiscoveryMap(p.disc)
 	if err != nil {
 		return err
 	}
@@ -187,6 +189,13 @@ func run(ctx context.Context) error {
 
 	provider := &Provider{
 		serverID: uuid.New(),
+		quicClient: &http.Client{
+			Transport: &h2quic.RoundTripper{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
 	}
 	provider.config, err = NewConfig()
 	if err != nil {

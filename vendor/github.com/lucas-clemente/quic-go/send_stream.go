@@ -116,7 +116,7 @@ func (s *sendStream) Write(p []byte) (int, error) {
 		} else {
 			select {
 			case <-s.writeChan:
-			case <-time.After(deadline.Sub(time.Now())):
+			case <-time.After(time.Until(deadline)):
 			}
 		}
 		s.mutex.Lock()
@@ -145,11 +145,11 @@ func (s *sendStream) popStreamFrame(maxBytes protocol.ByteCount) (*wire.StreamFr
 		Offset:         s.writeOffset,
 		DataLenPresent: true,
 	}
-	frameLen := frame.MinLength(s.version)
-	if frameLen >= maxBytes { // a STREAM frame must have at least one byte of data
+	maxDataLen := frame.MaxDataLen(maxBytes, s.version)
+	if maxDataLen == 0 { // a STREAM frame must have at least one byte of data
 		return nil, s.dataForWriting != nil
 	}
-	frame.Data, frame.FinBit = s.getDataForWriting(maxBytes - frameLen)
+	frame.Data, frame.FinBit = s.getDataForWriting(maxDataLen)
 	if len(frame.Data) == 0 && !frame.FinBit {
 		// this can happen if:
 		// - popStreamFrame is called but there's no data for writing

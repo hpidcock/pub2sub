@@ -5,5 +5,6 @@ import (
 )
 
 type QueueProviderInterface interface {
-	CreateQueue(context.Context) (string, error)
+	CreateQueue(ctx context.Context) (string, error)
+	PublishQueue(ctx context.Context, queueID string, message []byte) error
 }

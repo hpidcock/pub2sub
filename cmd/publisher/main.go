@@ -12,7 +12,6 @@ import (
 	"time"
 
 	etcd_clientv3 "github.com/coreos/etcd/clientv3"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-redis/redis"
 	"github.com/google/uuid"
 	"github.com/lucas-clemente/quic-go/h2quic"
@@ -191,13 +190,6 @@ func run(ctx context.Context) error {
 		return err
 	}
 	defer provider.close()
-
-	go func() {
-		for {
-			time.Sleep(1 * time.Second)
-			spew.Dump(provider.replicators.GetList())
-		}
-	}()
 
 	eg, egCtx := errgroup.WithContext(ctx)
 	eg.Go(func() error {

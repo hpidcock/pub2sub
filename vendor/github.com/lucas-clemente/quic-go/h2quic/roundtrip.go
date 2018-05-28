@@ -10,8 +10,9 @@ import (
 	"sync"
 
 	quic "github.com/lucas-clemente/quic-go"
+	"github.com/lucas-clemente/quic-go/qerr"
 
-	"golang.org/x/net/lex/httplex"
+	"golang.org/x/net/http/httpguts"
 )
 
 type roundTripCloser interface {
@@ -80,11 +81,11 @@ func (r *RoundTripper) RoundTripOpt(req *http.Request, opt RoundTripOpt) (*http.
 
 	if req.URL.Scheme == "https" {
 		for k, vv := range req.Header {
-			if !httplex.ValidHeaderFieldName(k) {
+			if !httpguts.ValidHeaderFieldName(k) {
 				return nil, fmt.Errorf("quic: invalid http header field name %q", k)
 			}
 			for _, v := range vv {
-				if !httplex.ValidHeaderFieldValue(v) {
+				if !httpguts.ValidHeaderFieldValue(v) {
 					return nil, fmt.Errorf("quic: invalid http header field value %q for key %v", v, k)
 				}
 			}
@@ -104,7 +105,12 @@ func (r *RoundTripper) RoundTripOpt(req *http.Request, opt RoundTripOpt) (*http.
 	if err != nil {
 		return nil, err
 	}
-	return cl.RoundTrip(req)
+
+	res, err := cl.RoundTrip(req)
+	if _, ok := err.(*qerr.QuicError); ok {
+		r.closeClient(hostname, cl)
+	}
+	return res, err
 }
 
 // RoundTrip does a round trip.
@@ -135,6 +141,25 @@ func (r *RoundTripper) getClient(hostname string, onlyCached bool) (http.RoundTr
 		r.clients[hostname] = client
 	}
 	return client, nil
+}
+
+func (r *RoundTripper) closeClient(hostname string, closingClient http.RoundTripper) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	if r.clients == nil {
+		return
+	}
+
+	client, ok := r.clients[hostname]
+	if !ok {
+		return
+	} else if client != closingClient {
+		return
+	}
+
+	delete(r.clients, hostname)
+	client.Close()
 }
 
 // Close closes the QUIC connections that this RoundTripper has used
@@ -175,5 +200,5 @@ func validMethod(method string) bool {
 
 // copied from net/http/http.go
 func isNotToken(r rune) bool {
-	return !httplex.IsTokenRune(r)
+	return !httpguts.IsTokenRune(r)
 }

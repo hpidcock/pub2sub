@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"errors"
+	"log"
 	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/google/uuid"
 	"github.com/hpidcock/go-pub-sub-channel"
 
@@ -38,6 +40,9 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 	if err != nil {
 		return err
 	}
+
+	log.Print("got channel")
+	spew.Dump(newChannel)
 
 	if oldChannel.ServerID != "" {
 		// TODO: Evict the user from the other server.
@@ -81,7 +86,6 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 		case *pb.InternalPublishRequest:
 			if reliable && obj.Reliable {
 				ackID := uuid.New().String()
-				ackList[ackID] = msg
 				// TODO: Generate JWT as AckID
 				err = call.Send(&pb.StreamResponse{
 					Id:       obj.Id,
@@ -92,8 +96,10 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 					AckId:    ackID,
 				})
 				if err != nil {
+					msg.Result <- err
 					return err
 				}
+				ackList[ackID] = msg
 			} else {
 				err = call.Send(&pb.StreamResponse{
 					Id:       obj.Id,
@@ -103,8 +109,10 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 					TopicId:  obj.TopicId,
 				})
 				if err != nil {
+					msg.Result <- err
 					return err
 				}
+				msg.Result <- nil
 			}
 		}
 		return ErrInvalidMessage

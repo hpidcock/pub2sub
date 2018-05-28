@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
 
 	"github.com/thoas/go-funk"
@@ -50,7 +51,10 @@ func (p *Provider) Publish(ctx context.Context,
 			RangeWidth: int32(width),
 		}
 		_, err = rc.Replicate(ctx, &rq)
-		if err != nil {
+		if err != nil && req.Reliable == false {
+			log.Print(err)
+			continue
+		} else if err != nil {
 			return nil, err
 		}
 	}

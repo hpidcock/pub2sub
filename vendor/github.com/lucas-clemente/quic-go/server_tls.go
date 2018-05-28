@@ -21,9 +21,17 @@ type nullAEAD struct {
 
 var _ quicAEAD = &nullAEAD{}
 
-func (n *nullAEAD) Open(dst, src []byte, packetNumber protocol.PacketNumber, associatedData []byte) ([]byte, protocol.EncryptionLevel, error) {
-	data, err := n.aead.Open(dst, src, packetNumber, associatedData)
-	return data, protocol.EncryptionUnencrypted, err
+func (n *nullAEAD) OpenHandshake(dst, src []byte, packetNumber protocol.PacketNumber, associatedData []byte) ([]byte, error) {
+	return n.aead.Open(dst, src, packetNumber, associatedData)
+}
+
+func (n *nullAEAD) Open1RTT(dst, src []byte, packetNumber protocol.PacketNumber, associatedData []byte) ([]byte, error) {
+	return nil, errors.New("no 1-RTT keys")
+}
+
+type tlsSession struct {
+	connID protocol.ConnectionID
+	sess   packetHandler
 }
 
 type serverTLS struct {
@@ -31,11 +39,12 @@ type serverTLS struct {
 	config            *Config
 	supportedVersions []protocol.VersionNumber
 	mintConf          *mint.Config
-	cookieProtector   mint.CookieProtector
 	params            *handshake.TransportParameters
 	newMintConn       func(*handshake.CryptoStreamConn, protocol.VersionNumber) (handshake.MintTLS, <-chan handshake.TransportParameters, error)
 
-	sessionChan chan<- packetHandler
+	sessionChan chan<- tlsSession
+
+	logger utils.Logger
 }
 
 func newServerTLS(
@@ -43,7 +52,8 @@ func newServerTLS(
 	config *Config,
 	cookieHandler *handshake.CookieHandler,
 	tlsConf *tls.Config,
-) (*serverTLS, <-chan packetHandler, error) {
+	logger utils.Logger,
+) (*serverTLS, <-chan tlsSession, error) {
 	mconf, err := tlsToMintConfig(tlsConf, protocol.PerspectiveServer)
 	if err != nil {
 		return nil, nil, err
@@ -56,7 +66,7 @@ func newServerTLS(
 	mconf.CookieProtector = cs
 	mconf.CookieHandler = cookieHandler
 
-	sessionChan := make(chan packetHandler)
+	sessionChan := make(chan tlsSession)
 	s := &serverTLS{
 		conn:              conn,
 		config:            config,
@@ -66,30 +76,36 @@ func newServerTLS(
 		params: &handshake.TransportParameters{
 			StreamFlowControlWindow:     protocol.ReceiveStreamFlowControlWindow,
 			ConnectionFlowControlWindow: protocol.ReceiveConnectionFlowControlWindow,
-			MaxStreams:                  protocol.MaxIncomingStreams,
 			IdleTimeout:                 config.IdleTimeout,
+			MaxBidiStreams:              uint16(config.MaxIncomingStreams),
+			MaxUniStreams:               uint16(config.MaxIncomingUniStreams),
 		},
+		logger: logger,
 	}
 	s.newMintConn = s.newMintConnImpl
 	return s, sessionChan, nil
 }
 
 func (s *serverTLS) HandleInitial(remoteAddr net.Addr, hdr *wire.Header, data []byte) {
-	utils.Debugf("Received a Packet. Handling it statelessly.")
+	// TODO: add a check that DestConnID == SrcConnID
+	s.logger.Debugf("Received a Packet. Handling it statelessly.")
 	sess, err := s.handleInitialImpl(remoteAddr, hdr, data)
 	if err != nil {
-		utils.Errorf("Error occured handling initial packet: %s", err)
+		s.logger.Errorf("Error occurred handling initial packet: %s", err)
 		return
 	}
 	if sess == nil { // a stateless reset was done
 		return
 	}
-	s.sessionChan <- sess
+	s.sessionChan <- tlsSession{
+		connID: hdr.DestConnectionID,
+		sess:   sess,
+	}
 }
 
 // will be set to s.newMintConn by the constructor
 func (s *serverTLS) newMintConnImpl(bc *handshake.CryptoStreamConn, v protocol.VersionNumber) (handshake.MintTLS, <-chan handshake.TransportParameters, error) {
-	extHandler := handshake.NewExtensionHandlerServer(s.params, s.config.Versions, v)
+	extHandler := handshake.NewExtensionHandlerServer(s.params, s.config.Versions, v, s.logger)
 	conf := s.mintConf.Clone()
 	conf.ExtensionHandler = extHandler
 	return newMintController(bc, conf, protocol.PerspectiveServer), extHandler.GetPeerParams(), nil
@@ -101,13 +117,14 @@ func (s *serverTLS) sendConnectionClose(remoteAddr net.Addr, clientHdr *wire.Hea
 		ReasonPhrase: closeErr.Error(),
 	}
 	replyHdr := &wire.Header{
-		IsLongHeader: true,
-		Type:         protocol.PacketTypeHandshake,
-		ConnectionID: clientHdr.ConnectionID, // echo the client's connection ID
-		PacketNumber: 1,                      // random packet number
-		Version:      clientHdr.Version,
+		IsLongHeader:     true,
+		Type:             protocol.PacketTypeHandshake,
+		SrcConnectionID:  clientHdr.DestConnectionID,
+		DestConnectionID: clientHdr.SrcConnectionID,
+		PacketNumber:     1, // random packet number
+		Version:          clientHdr.Version,
 	}
-	data, err := packUnencryptedPacket(aead, replyHdr, ccf, protocol.PerspectiveServer)
+	data, err := packUnencryptedPacket(aead, replyHdr, ccf, protocol.PerspectiveServer, s.logger)
 	if err != nil {
 		return err
 	}
@@ -121,25 +138,29 @@ func (s *serverTLS) handleInitialImpl(remoteAddr net.Addr, hdr *wire.Header, dat
 	}
 	// check version, if not matching send VNP
 	if !protocol.IsSupportedVersion(s.supportedVersions, hdr.Version) {
-		utils.Debugf("Client offered version %s, sending VersionNegotiationPacket", hdr.Version)
-		_, err := s.conn.WriteTo(wire.ComposeVersionNegotiation(hdr.ConnectionID, hdr.PacketNumber, s.supportedVersions), remoteAddr)
+		s.logger.Debugf("Client offered version %s, sending VersionNegotiationPacket", hdr.Version)
+		vnp, err := wire.ComposeVersionNegotiation(hdr.SrcConnectionID, hdr.DestConnectionID, s.supportedVersions)
+		if err != nil {
+			return nil, err
+		}
+		_, err = s.conn.WriteTo(vnp, remoteAddr)
 		return nil, err
 	}
 
 	// unpack packet and check stream frame contents
-	aead, err := crypto.NewNullAEAD(protocol.PerspectiveServer, hdr.ConnectionID, hdr.Version)
+	aead, err := crypto.NewNullAEAD(protocol.PerspectiveServer, hdr.DestConnectionID, protocol.VersionTLS)
 	if err != nil {
 		return nil, err
 	}
-	frame, err := unpackInitialPacket(aead, hdr, data, hdr.Version)
+	frame, err := unpackInitialPacket(aead, hdr, data, s.logger, hdr.Version)
 	if err != nil {
-		utils.Debugf("Error unpacking initial packet: %s", err)
+		s.logger.Debugf("Error unpacking initial packet: %s", err)
 		return nil, nil
 	}
 	sess, err := s.handleUnpackedInitial(remoteAddr, hdr, frame, aead)
 	if err != nil {
 		if ccerr := s.sendConnectionClose(remoteAddr, hdr, aead, err); ccerr != nil {
-			utils.Debugf("Error sending CONNECTION_CLOSE: ", ccerr)
+			s.logger.Debugf("Error sending CONNECTION_CLOSE: %s", ccerr)
 		}
 		return nil, err
 	}
@@ -158,18 +179,20 @@ func (s *serverTLS) handleUnpackedInitial(remoteAddr net.Addr, hdr *wire.Header,
 	if alert == mint.AlertStatelessRetry {
 		// the HelloRetryRequest was written to the bufferConn
 		// Take that data and write send a Retry packet
-		replyHdr := &wire.Header{
-			IsLongHeader: true,
-			Type:         protocol.PacketTypeRetry,
-			ConnectionID: hdr.ConnectionID, // echo the client's connection ID
-			PacketNumber: hdr.PacketNumber, // echo the client's packet number
-			Version:      version,
-		}
 		f := &wire.StreamFrame{
 			StreamID: version.CryptoStreamID(),
 			Data:     bc.GetDataForWriting(),
 		}
-		data, err := packUnencryptedPacket(aead, replyHdr, f, protocol.PerspectiveServer)
+		replyHdr := &wire.Header{
+			IsLongHeader:     true,
+			Type:             protocol.PacketTypeRetry,
+			DestConnectionID: hdr.SrcConnectionID,
+			SrcConnectionID:  hdr.DestConnectionID,
+			PayloadLen:       f.Length(version) + protocol.ByteCount(aead.Overhead()),
+			PacketNumber:     hdr.PacketNumber, // echo the client's packet number
+			Version:          version,
+		}
+		data, err := packUnencryptedPacket(aead, replyHdr, f, protocol.PerspectiveServer, s.logger)
 		if err != nil {
 			return nil, err
 		}
@@ -191,7 +214,8 @@ func (s *serverTLS) handleUnpackedInitial(remoteAddr net.Addr, hdr *wire.Header,
 	params := <-paramsChan
 	sess, err := newTLSServerSession(
 		&conn{pconn: s.conn, currentAddr: remoteAddr},
-		hdr.ConnectionID,         // TODO: we can use a server-chosen connection ID here
+		hdr.SrcConnectionID,
+		hdr.DestConnectionID,     // TODO(#1003): we can use a server-chosen connection ID here
 		protocol.PacketNumber(1), // TODO: use a random packet number here
 		s.config,
 		tls,
@@ -199,6 +223,7 @@ func (s *serverTLS) handleUnpackedInitial(remoteAddr net.Addr, hdr *wire.Header,
 		aead,
 		&params,
 		version,
+		s.logger,
 	)
 	if err != nil {
 		return nil, err

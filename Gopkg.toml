@@ -55,7 +55,8 @@
 
 [[constraint]]
   name = "github.com/lucas-clemente/quic-go"
-  version = "0.7.0"
+  source = "github.com/hpidcock/quic-go"
+  branch = "master" 
 
 [[constraint]]
   name = "github.com/stretchr/testify"
@@ -70,7 +71,7 @@
   version = "5.4.1"
 
 [[constraint]]
-  branch = "release-branch.go1.10"
+  branch = "master"
   name = "golang.org/x/net"
 
 [[constraint]]
