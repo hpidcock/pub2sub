@@ -197,7 +197,6 @@ func (p *Provider) forwardMessage(ctx context.Context, channelID string,
 
 	if time.Now().UTC().After(channelModel.ExpireAt) {
 		// Expired channel
-		log.Print("channel expired")
 		return nil
 	}
 

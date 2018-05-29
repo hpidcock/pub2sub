@@ -20,7 +20,7 @@ func main() {
 	}
 	pub := pb.NewPublishServiceClient(pubConnection)
 
-	subConnection, err := grpc.Dial("localhost:5003", grpc.WithInsecure())
+	subConnection, err := grpc.Dial("localhost:5004", grpc.WithInsecure())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -37,12 +37,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(100 * time.Millisecond)
 
 	log.Print("lease")
 	_, err = sub.Lease(context.Background(), &pb.LeaseRequest{
 		ChannelId: a.String(),
-		ExpireIn:  10000,
+		ExpireIn:  5,
 		TopicId:   "abc",
 	})
 	if err != nil {

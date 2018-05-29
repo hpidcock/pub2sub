@@ -143,8 +143,7 @@ func (p *Provider) init() error {
 
 	etcdConfig := etcd_clientv3.Config{
 		Endpoints: []string{
-			// TODO: Config
-			"localhost:2379",
+			p.config.EtcdAddress,
 		},
 	}
 	p.etcdClient, err = etcd_clientv3.New(etcdConfig)
