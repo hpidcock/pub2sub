@@ -149,12 +149,6 @@
 
 [[projects]]
   branch = "master"
-  name = "github.com/hpidcock/go-time-helpers"
-  packages = ["."]
-  revision = "baf040f5e86a67d199ad6edc2952d5d7505fdeb9"
-
-[[projects]]
-  branch = "master"
   name = "github.com/koding/multiconfig"
   packages = ["."]
   revision = "69c27309b2d751c576b59ea9c3726597c2375da3"
@@ -315,6 +309,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "77d0231b61f96eee59c55b4845cbc044b9a7c2494e6212fe68583110081a750b"
+  inputs-digest = "3e18c068a34596033e991985408681ff313dcfc4890721d7f1565e3f24b8e35a"
   solver-name = "gps-cdcl"
   solver-version = 1
