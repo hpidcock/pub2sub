@@ -36,6 +36,7 @@ func main() {
 	log.Print("stream")
 	stream, err := sub.Stream(context.Background(), &pb.StreamRequest{
 		ChannelId: channelID.String(),
+		Reliable:  true,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -51,17 +52,19 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Print("publish")
-	_, err = pub.Publish(context.Background(), &pb.PublishRequest{
-		Id:       uuid.New().String(),
-		Message:  []byte("hello"),
-		Reliable: false,
-		TopicIds: []string{topicID.String()},
-		Ts:       time.Now().UnixNano(),
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
+	go func() {
+		log.Print("publish")
+		_, err = pub.Publish(context.Background(), &pb.PublishRequest{
+			Id:       uuid.New().String(),
+			Message:  []byte("hello"),
+			Reliable: true,
+			TopicIds: []string{topicID.String()},
+			Ts:       time.Now().UnixNano(),
+		})
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
 
 	log.Print("stream recv")
 	res, err := stream.Recv()
@@ -69,7 +72,21 @@ func main() {
 		log.Fatal(err)
 	}
 
+	spew.Dump(res)
+	if res.Reliable == true {
+		_, err = sub.Ack(context.Background(), &pb.AckRequest{
+			AckId:     res.AckId,
+			ChannelId: channelID.String(),
+		})
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
 	fmt.Println(time.Since(start))
 
-	spew.Dump(res)
+	err = stream.CloseSend()
+	if err != nil {
+		log.Fatal(err)
+	}
 }

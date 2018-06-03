@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"errors"
+	"log"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/hashicorp/go-multierror"
 
 	"google.golang.org/grpc/codes"
@@ -19,10 +21,16 @@ import (
 var (
 	ErrInvalidMessage = errors.New("invalid message")
 	ErrBadChannelID   = status.Error(codes.InvalidArgument, "bad channel id")
+	ErrChannelClosing = errors.New("channel closing")
 )
 
 func (p *Provider) Stream(req *pb.StreamRequest,
 	call pb.SubscribeService_StreamServer) (outErr error) {
+	defer func() {
+		log.Printf("stream %s closed with %v\n", req.ChannelId, outErr)
+	}()
+
+	log.Printf("new stream %s\n", req.ChannelId)
 	channelID, err := uuid.Parse(req.ChannelId)
 	if err != nil {
 		return ErrBadChannelID
@@ -31,6 +39,7 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 	ctx, cancelFunc := context.WithCancel(call.Context())
 	defer cancelFunc()
 
+	log.Printf("acquiring %s\n", req.ChannelId)
 	err = p.channelClient.AcquireChannel(ctx, channelID, func(ctx context.Context,
 		serverID uuid.UUID, channelID uuid.UUID) error {
 		return p.evict(ctx, serverID, channelID)
@@ -55,12 +64,14 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 
 	reliable := req.Reliable
 	if reliable {
+		log.Printf("stream %s obtaining reliable queue\n", req.ChannelId)
 		err = p.topicController.CreateOrExtendQueue(ctx, channelID,
 			p.config.QueueKeepAliveDuration)
 		if err != nil {
 			return err
 		}
 	} else {
+		log.Printf("stream %s deleting reliable queue\n", req.ChannelId)
 		err = p.topicController.DeleteQueue(ctx, channelID)
 		if err != nil {
 			return err
@@ -68,12 +79,13 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 	}
 
 	// Subscribe after acquire so we don't evict ourselves.
+	log.Printf("stream %s subscribing to cross routine messages\n", req.ChannelId)
 	internalChannel := p.router.Subscribe(channelID.String())
 	ackList := make(map[string]router.Message)
 	defer func() {
 		done := p.router.Unsubscribe(channelID.String(), internalChannel)
 		for _, msg := range ackList {
-			msg.Result <- context.Canceled
+			msg.Result <- ErrChannelClosing
 		}
 		for {
 			select {
@@ -83,7 +95,7 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 				if ok == false {
 					return
 				}
-				msg.Result <- context.Canceled
+				msg.Result <- ErrChannelClosing
 			}
 		}
 	}()
@@ -97,6 +109,7 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 			onReleasedChan = msg.Result
 			return context.Canceled
 		case *pb.InternalAckRequest:
+			spew.Dump(obj)
 			// TODO: Handle JWT AckIDs
 			ack, ok := ackList[obj.AckId]
 			if ok {
@@ -104,6 +117,7 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 				delete(ackList, obj.AckId)
 			}
 			msg.Result <- nil
+			return nil
 		case *pb.InternalPublishRequest:
 			if reliable && obj.Reliable {
 				ackID := uuid.New().String()
@@ -135,8 +149,10 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 				}
 				msg.Result <- nil
 			}
+			return nil
+		default:
+			return ErrInvalidMessage
 		}
-		return ErrInvalidMessage
 	}
 
 	var refreshChannel <-chan time.Time
@@ -147,16 +163,20 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 		refreshChannel = ticker.C
 	}
 
+	log.Printf("stream %s waiting for events\n", req.ChannelId)
 	for {
 		select {
 		case <-ctx.Done():
+			log.Printf("stream %s context canceled\n", req.ChannelId)
 			return context.Canceled
 		case msg := <-internalChannel:
+			log.Printf("stream %s got cross event %v\n", req.ChannelId, msg.Obj)
 			err = handleMessage(msg)
 			if err != nil {
 				return err
 			}
 		case <-refreshChannel:
+			log.Printf("stream %s extending queue lease\n", req.ChannelId)
 			err = p.topicController.ExtendQueue(ctx,
 				channelID, p.config.QueueKeepAliveDuration)
 			if err != nil {

@@ -51,17 +51,16 @@ func NewChannelClient(etcdClient *v3.Client,
 func (cc *ChannelClient) GetChannelServerID(ctx context.Context,
 	channelID uuid.UUID) (uuid.UUID, error) {
 	key := fmt.Sprintf("channel-%s", channelID.String())
-	res, err := cc.kvClient.Get(ctx, key)
+	res, err := cc.kvClient.Get(ctx, key, v3.WithSerializable())
 	if err != nil {
 		return uuid.Nil, err
 	}
 
-	kv := res.Kvs[0]
-	if kv.CreateRevision == 0 {
+	if len(res.Kvs) == 0 {
 		return uuid.Nil, ErrChannelNotFound
 	}
 
-	serverID, err := uuid.Parse(string(kv.Value))
+	serverID, err := uuid.Parse(string(res.Kvs[0].Value))
 	if err != nil {
 		return uuid.Nil, err
 	}

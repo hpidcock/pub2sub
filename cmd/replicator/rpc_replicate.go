@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/hashicorp/go-multierror"
 
 	"github.com/gogo/protobuf/proto"
@@ -208,11 +209,16 @@ func (p *Provider) forwardMessage(ctx context.Context, channelID uuid.UUID,
 	}
 
 	if noChannel && reliable == false {
+		log.Println("dropping unreliable message: no channel")
 		return nil
 	}
 
 	if req.Reliable {
 		defer func() {
+			if errOut == nil {
+				return
+			}
+
 			channelMessage := pb.ChannelMessage{
 				Id:      req.Id,
 				Message: req.Message,
@@ -228,6 +234,7 @@ func (p *Provider) forwardMessage(ctx context.Context, channelID uuid.UUID,
 
 			_, err = p.topicController.PushMessage(ctx, channelID, payload)
 			if err == topic.ErrQueueNotFound {
+				log.Println("dropping reliable message: no queue")
 				// Either the queue has expired or the channel is unreliable.
 			} else if err != nil {
 				errOut = multierror.Append(errOut, err)
@@ -239,6 +246,9 @@ func (p *Provider) forwardMessage(ctx context.Context, channelID uuid.UUID,
 		}()
 	} else {
 		defer func() {
+			if errOut != nil {
+				log.Println("dropping unreliable message: ", err)
+			}
 			// Snuff errors for unreliable messages.
 			errOut = nil
 		}()
@@ -266,6 +276,7 @@ func (p *Provider) forwardMessage(ctx context.Context, channelID uuid.UUID,
 	defer cancelFunc()
 	_, err = rc.InternalPublish(timeoutCtx, &rq)
 	if err != nil {
+		spew.Dump(err)
 		return err
 	}
 
