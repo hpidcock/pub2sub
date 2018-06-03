@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/hashicorp/go-multierror"
 
 	"github.com/gogo/protobuf/proto"
@@ -200,6 +199,20 @@ func (p *Provider) replicateDown(ctx context.Context,
 func (p *Provider) forwardMessage(ctx context.Context, channelID uuid.UUID,
 	req *pb.ReplicateRequest) (errOut error) {
 	reliable := req.Reliable
+	if reliable == false {
+		defer func() {
+			if errOut != nil {
+				log.Println("dropping unreliable message: ", errOut)
+			}
+			// Snuff errors for unreliable messages.
+			errOut = nil
+		}()
+	}
+
+	// TODO: configure
+	ctx, cancelFunc := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelFunc()
+
 	noChannel := false
 	serverID, err := p.channelClient.GetChannelServerID(ctx, channelID)
 	if err == channel.ErrChannelNotFound {
@@ -244,14 +257,6 @@ func (p *Provider) forwardMessage(ctx context.Context, channelID uuid.UUID,
 			// Error was handled by pushing to the queue, if it exists.
 			errOut = nil
 		}()
-	} else {
-		defer func() {
-			if errOut != nil {
-				log.Println("dropping unreliable message: ", err)
-			}
-			// Snuff errors for unreliable messages.
-			errOut = nil
-		}()
 	}
 
 	rq := pb.InternalPublishRequest{
@@ -276,7 +281,6 @@ func (p *Provider) forwardMessage(ctx context.Context, channelID uuid.UUID,
 	defer cancelFunc()
 	_, err = rc.InternalPublish(timeoutCtx, &rq)
 	if err != nil {
-		spew.Dump(err)
 		return err
 	}
 

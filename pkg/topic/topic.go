@@ -105,27 +105,28 @@ func (m *Controller) ScanTopic(ctx context.Context,
 }
 
 func (m *Controller) CreateOrExtendQueue(ctx context.Context,
-	channelID uuid.UUID, duration time.Duration) error {
+	channelID uuid.UUID, duration time.Duration) (bool, error) {
 	seconds := int(math.Ceil(duration.Seconds()))
 
 	pipeline := m.redisClient.Pipeline()
 	res := pipeline.EvalSha(m.createOrExtendQueue, []string{channelID.String()}, seconds)
 	_, err := pipeline.Exec()
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	value, _ := res.Result()
-	asInt, ok := value.(int64)
+	resInt, ok := value.(int64)
 	if ok == false {
-		return ErrResultParseFailed
+		return false, ErrResultParseFailed
 	}
 
-	if asInt != 1 {
-		return ErrFailedToCreateQueue
+	if resInt != 1 && resInt != 2 {
+		return false, ErrFailedToCreateQueue
 	}
 
-	return nil
+	// Return true if resumed.
+	return resInt == 1, nil
 }
 
 func (m *Controller) DeleteQueue(ctx context.Context, channelID uuid.UUID) error {

@@ -56,8 +56,14 @@ func (p *Provider) Lease(ctx context.Context,
 		return nil, ErrFailedToAcquireLease
 	}
 
+	leaseDuration := asOf.Sub(start)
+	err = p.topicController.ExtendQueue(ctx, channelID, leaseDuration)
+	if err != nil {
+		return nil, err
+	}
+
 	res := &pb.LeaseResponse{
-		Ttl: asOf.Unix() - start.Unix(),
+		Ttl: int64(leaseDuration.Seconds()),
 	}
 	return res, nil
 }

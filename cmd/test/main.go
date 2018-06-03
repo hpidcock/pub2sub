@@ -42,6 +42,17 @@ func main() {
 		log.Fatal(err)
 	}
 
+	introMessage, err := stream.Recv()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if evt, ok := introMessage.Event.(*pb.StreamResponse_StreamOpenedEvent); ok {
+		log.Printf("resumed: %b\n", evt.StreamOpenedEvent.GetResumed())
+	} else {
+		log.Fatal("server returned the wrong event")
+	}
+
 	log.Print("lease")
 	_, err = sub.Lease(context.Background(), &pb.LeaseRequest{
 		ChannelId: channelID.String(),
@@ -52,6 +63,7 @@ func main() {
 		log.Fatal(err)
 	}
 
+	start2 := time.Now()
 	go func() {
 		log.Print("publish")
 		_, err = pub.Publish(context.Background(), &pb.PublishRequest{
@@ -71,19 +83,26 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	fmt.Println(time.Since(start2))
 
 	spew.Dump(res)
-	if res.Reliable == true {
-		_, err = sub.Ack(context.Background(), &pb.AckRequest{
-			AckId:     res.AckId,
-			ChannelId: channelID.String(),
-		})
-		if err != nil {
-			log.Fatal(err)
+
+	if evt, ok := res.Event.(*pb.StreamResponse_StreamMessageEvent); ok {
+		if evt.StreamMessageEvent.Reliable == true {
+			_, err = sub.Ack(context.Background(), &pb.AckRequest{
+				AckId:     evt.StreamMessageEvent.AckId,
+				ChannelId: channelID.String(),
+			})
+			if err != nil {
+				log.Fatal(err)
+			}
 		}
+	} else {
+		log.Fatal("server returned the wrong event")
 	}
 
 	fmt.Println(time.Since(start))
+	fmt.Println(time.Since(start2))
 
 	err = stream.CloseSend()
 	if err != nil {

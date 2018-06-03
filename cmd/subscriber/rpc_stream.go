@@ -63,9 +63,10 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 	}()
 
 	reliable := req.Reliable
+	resumed := false
 	if reliable {
 		log.Printf("stream %s obtaining reliable queue\n", req.ChannelId)
-		err = p.topicController.CreateOrExtendQueue(ctx, channelID,
+		resumed, err = p.topicController.CreateOrExtendQueue(ctx, channelID,
 			p.config.QueueKeepAliveDuration)
 		if err != nil {
 			return err
@@ -100,6 +101,18 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 		}
 	}()
 
+	// Send open event so client knows it can subscribe to stuff.
+	err = call.Send(&pb.StreamResponse{
+		Event: &pb.StreamResponse_StreamOpenedEvent{
+			StreamOpenedEvent: &pb.StreamOpenedEvent{
+				Resumed: resumed,
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+
 	// TODO: Handle pulling and acking with redis.
 
 	handleMessage := func(msg router.Message) error {
@@ -123,12 +136,16 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 				ackID := uuid.New().String()
 				// TODO: Generate JWT as AckID
 				err = call.Send(&pb.StreamResponse{
-					Id:       obj.Id,
-					Ts:       obj.Ts,
-					Message:  obj.Message,
-					Reliable: true,
-					TopicId:  obj.TopicId,
-					AckId:    ackID,
+					Event: &pb.StreamResponse_StreamMessageEvent{
+						StreamMessageEvent: &pb.StreamMessageEvent{
+							Id:       obj.Id,
+							Ts:       obj.Ts,
+							Message:  obj.Message,
+							Reliable: true,
+							TopicId:  obj.TopicId,
+							AckId:    ackID,
+						},
+					},
 				})
 				if err != nil {
 					msg.Result <- err
@@ -137,11 +154,15 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 				ackList[ackID] = msg
 			} else {
 				err = call.Send(&pb.StreamResponse{
-					Id:       obj.Id,
-					Ts:       obj.Ts,
-					Message:  obj.Message,
-					Reliable: false,
-					TopicId:  obj.TopicId,
+					Event: &pb.StreamResponse_StreamMessageEvent{
+						StreamMessageEvent: &pb.StreamMessageEvent{
+							Id:       obj.Id,
+							Ts:       obj.Ts,
+							Message:  obj.Message,
+							Reliable: false,
+							TopicId:  obj.TopicId,
+						},
+					},
 				})
 				if err != nil {
 					msg.Result <- err
