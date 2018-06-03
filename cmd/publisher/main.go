@@ -19,8 +19,8 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/hpidcock/pub2sub/pkg/discovery"
-	"github.com/hpidcock/pub2sub/pkg/model"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
+	"github.com/hpidcock/pub2sub/pkg/topic"
 )
 
 type Provider struct {
@@ -31,7 +31,7 @@ type Provider struct {
 	etcdClient  *etcd_clientv3.Client
 	quicClient  *http.Client
 
-	modelController *model.Controller
+	topicController *topic.Controller
 	disc            *discovery.DiscoveryClient
 	replicators     *discovery.DiscoveryList
 }
@@ -119,7 +119,7 @@ func (p *Provider) init() error {
 		Addr: p.config.RedisAddress,
 	})
 
-	p.modelController, err = model.NewController(nil, p.redisClient)
+	p.topicController, err = topic.NewController(p.redisClient)
 	if err != nil {
 		return err
 	}

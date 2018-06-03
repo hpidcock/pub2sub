@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -20,30 +21,31 @@ func main() {
 	}
 	pub := pb.NewPublishServiceClient(pubConnection)
 
-	subConnection, err := grpc.Dial("localhost:5004", grpc.WithInsecure())
+	subConnection, err := grpc.Dial("localhost:5003", grpc.WithInsecure())
 	if err != nil {
 		log.Fatal(err)
 	}
 	sub := pb.NewSubscribeServiceClient(subConnection)
 
-	a := uuid.New()
-	spew.Dump(a)
+	channelID := uuid.Must(uuid.Parse("872b8833-0402-41ef-9096-53917fbf0286"))
+	topicID := uuid.Must(uuid.Parse("e7619379-2ce4-426d-a9a7-31d530b6f59c"))
+	spew.Dump(channelID)
+
+	start := time.Now()
 
 	log.Print("stream")
 	stream, err := sub.Stream(context.Background(), &pb.StreamRequest{
-		ChannelId: a.String(),
+		ChannelId: channelID.String(),
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	time.Sleep(100 * time.Millisecond)
-
 	log.Print("lease")
 	_, err = sub.Lease(context.Background(), &pb.LeaseRequest{
-		ChannelId: a.String(),
-		ExpireIn:  5,
-		TopicId:   "abc",
+		ChannelId: channelID.String(),
+		ExpireIn:  100,
+		TopicId:   topicID.String(),
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -54,7 +56,7 @@ func main() {
 		Id:       uuid.New().String(),
 		Message:  []byte("hello"),
 		Reliable: false,
-		TopicIds: []string{"abc"},
+		TopicIds: []string{topicID.String()},
 		Ts:       time.Now().UnixNano(),
 	})
 	if err != nil {
@@ -66,6 +68,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	fmt.Println(time.Since(start))
 
 	spew.Dump(res)
 }

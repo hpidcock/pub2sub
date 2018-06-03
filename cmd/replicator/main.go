@@ -18,11 +18,10 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
+	"github.com/hpidcock/pub2sub/pkg/channel"
 	"github.com/hpidcock/pub2sub/pkg/discovery"
-	"github.com/hpidcock/pub2sub/pkg/model"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
-	"github.com/hpidcock/pub2sub/pkg/queue"
-	"github.com/hpidcock/pub2sub/pkg/queue_sqs"
+	"github.com/hpidcock/pub2sub/pkg/topic"
 )
 
 type Provider struct {
@@ -33,11 +32,11 @@ type Provider struct {
 	etcdClient  *etcd_clientv3.Client
 	quicClient  *http.Client
 
-	modelController *model.Controller
+	topicController *topic.Controller
+	channelClient   *channel.ChannelClient
 	disc            *discovery.DiscoveryClient
 	nextLayer       *discovery.DiscoveryList
 	subscriberLayer *discovery.DiscoveryMap
-	queueProvider   queue.QueueProviderInterface
 }
 
 func (p *Provider) runGRPCServer(ctx context.Context) error {
@@ -131,12 +130,7 @@ func (p *Provider) init() error {
 		Addr: p.config.RedisAddress,
 	})
 
-	p.queueProvider, err = queue_sqs.NewSQSQueueProvider()
-	if err != nil {
-		return err
-	}
-
-	p.modelController, err = model.NewController(nil, p.redisClient)
+	p.topicController, err = topic.NewController(p.redisClient)
 	if err != nil {
 		return err
 	}
@@ -166,6 +160,11 @@ func (p *Provider) init() error {
 		if err != nil {
 			return err
 		}
+	}
+
+	p.channelClient, err = channel.NewChannelClient(p.etcdClient, p.serverID)
+	if err != nil {
+		return err
 	}
 
 	return nil

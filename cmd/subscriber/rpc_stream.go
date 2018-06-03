@@ -18,16 +18,15 @@ import (
 
 var (
 	ErrInvalidMessage = errors.New("invalid message")
+	ErrBadChannelID   = status.Error(codes.InvalidArgument, "bad channel id")
 )
 
 func (p *Provider) Stream(req *pb.StreamRequest,
 	call pb.SubscribeService_StreamServer) (outErr error) {
 	channelID, err := uuid.Parse(req.ChannelId)
 	if err != nil {
-		return status.Error(codes.InvalidArgument, "bad channel id")
+		return ErrBadChannelID
 	}
-
-	reliable := req.Reliable
 
 	ctx, cancelFunc := context.WithCancel(call.Context())
 	defer cancelFunc()
@@ -39,17 +38,25 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 	if err != nil {
 		return err
 	}
+	var onReleasedChan chan<- error
 	defer func() {
+		// Sadly must be a new context incase the parent is canceled.
+		// TODO: Pass context metadata for trace spans.
 		releaseCtx, cancelFunc := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancelFunc()
 		err := p.channelClient.ReleaseChannel(releaseCtx, channelID)
+		if onReleasedChan != nil {
+			onReleasedChan <- err
+		}
 		if err != nil {
 			outErr = multierror.Append(outErr, err)
 		}
 	}()
 
+	reliable := req.Reliable
 	if reliable {
-		err = p.topicController.CreateOrExtendQueue(ctx, channelID, p.config.QueueKeepAliveDuration)
+		err = p.topicController.CreateOrExtendQueue(ctx, channelID,
+			p.config.QueueKeepAliveDuration)
 		if err != nil {
 			return err
 		}
@@ -81,10 +88,13 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 		}
 	}()
 
+	// TODO: Handle pulling and acking with redis.
+
 	handleMessage := func(msg router.Message) error {
 		switch obj := msg.Obj.(type) {
 		case *pb.InternalEvictRequest:
-			msg.Result <- nil
+			// This will be posted to in the defered close method.
+			onReleasedChan = msg.Result
 			return context.Canceled
 		case *pb.InternalAckRequest:
 			// TODO: Handle JWT AckIDs
@@ -129,8 +139,13 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 		return ErrInvalidMessage
 	}
 
-	refreshChannelDuration := p.config.MaxSubscribeDuration / 2
-	time.NewTicker()
+	var refreshChannel <-chan time.Time
+	if reliable {
+		refreshChannelDuration := p.config.MaxSubscribeDuration / 2
+		ticker := time.NewTicker(refreshChannelDuration)
+		defer ticker.Stop()
+		refreshChannel = ticker.C
+	}
 
 	for {
 		select {
@@ -141,14 +156,11 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 			if err != nil {
 				return err
 			}
-		case <-time.After(5 * time.Second): // TODO: Get poll time from config
-			clk, err := p.modelController.GetChannelClock(ctx, channelID)
+		case <-refreshChannel:
+			err = p.topicController.ExtendQueue(ctx,
+				channelID, p.config.QueueKeepAliveDuration)
 			if err != nil {
 				return err
-			}
-
-			if clk > newChannel.Clock {
-				return status.Error(codes.Aborted, "channel evicted")
 			}
 		}
 	}

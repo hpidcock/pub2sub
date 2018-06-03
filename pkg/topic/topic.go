@@ -116,7 +116,7 @@ func (m *Controller) CreateOrExtendQueue(ctx context.Context,
 	}
 
 	value, _ := res.Result()
-	asInt, ok := value.(int)
+	asInt, ok := value.(int64)
 	if ok == false {
 		return ErrResultParseFailed
 	}
@@ -151,7 +151,7 @@ func (m *Controller) ExtendQueue(ctx context.Context,
 	}
 
 	value, _ := res.Result()
-	asInt, ok := value.(int)
+	asInt, ok := value.(int64)
 	if ok == false {
 		return ErrResultParseFailed
 	}
@@ -182,7 +182,7 @@ func (m *Controller) Subscribe(ctx context.Context,
 	}
 
 	value, _ := res.Result()
-	asInt, ok := value.(int)
+	asInt, ok := value.(int64)
 	if ok == false {
 		return time.Time{}, ErrResultParseFailed
 	}

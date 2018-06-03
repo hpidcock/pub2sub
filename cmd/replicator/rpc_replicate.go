@@ -7,17 +7,28 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
 	"github.com/hashicorp/go-multierror"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/hpidcock/pub2sub/pkg/model"
+	"github.com/hpidcock/pub2sub/pkg/channel"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
+	"github.com/hpidcock/pub2sub/pkg/topic"
+)
+
+var (
+	ErrNodeNotFound   = status.Error(codes.NotFound, "node not found")
+	ErrBadTopicID     = status.Error(codes.InvalidArgument, "bad topic id")
+	ErrBadRangeBegin  = status.Error(codes.InvalidArgument, "bad range begin")
+	ErrBadRangeEnd    = status.Error(codes.InvalidArgument, "bad end begin")
+	ErrNoNodes        = status.Error(codes.Unavailable, "no nodes")
+	ErrRangesAreEqual = status.Error(codes.InvalidArgument, "uuids are equal")
+	ErrBadRangeWidth  = status.Error(codes.InvalidArgument, "bad range width")
 )
 
 func partitionUUID(a uuid.UUID, b uuid.UUID) (left uuid.UUID, right uuid.UUID, ok bool) {
@@ -61,18 +72,22 @@ func (p *Provider) Replicate(ctx context.Context, req *pb.ReplicateRequest) (*pb
 
 func (p *Provider) replicateForward(ctx context.Context,
 	req *pb.ReplicateRequest) (*pb.ReplicateResponse, error) {
-	var err error
-	_, err = uuid.Parse(req.RangeBegin)
+	topicID, err := uuid.Parse(req.TopicId)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "bad range begin")
+		return nil, ErrBadTopicID
 	}
 
-	_, err = uuid.Parse(req.RangeEnd)
+	begin, err := uuid.Parse(req.RangeBegin)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "bad end begin")
+		return nil, ErrBadRangeBegin
 	}
 
-	channelIDs, err := p.modelController.ScanTopic(ctx, req.TopicId, req.RangeBegin, req.RangeEnd)
+	end, err := uuid.Parse(req.RangeEnd)
+	if err != nil {
+		return nil, ErrBadRangeEnd
+	}
+
+	channelIDs, err := p.topicController.ScanTopic(ctx, topicID, time.Now(), begin, end)
 	if err != nil {
 		return nil, err
 	}
@@ -101,22 +116,22 @@ func (p *Provider) replicateDown(ctx context.Context,
 	req *pb.ReplicateRequest) (*pb.ReplicateResponse, error) {
 	var err error
 	if req.RangeWidth == 0 {
-		return nil, status.Error(codes.InvalidArgument, "bad range width")
+		return nil, ErrBadRangeWidth
 	}
 
 	begin, err := uuid.Parse(req.RangeBegin)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "bad range begin")
+		return nil, ErrBadRangeBegin
 	}
 
 	end, err := uuid.Parse(req.RangeEnd)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "bad end begin")
+		return nil, ErrBadRangeEnd
 	}
 
 	replicators := p.nextLayer.GetList()
 	if len(replicators) == 0 {
-		return nil, status.Error(codes.Unavailable, "no nodes")
+		return nil, ErrNoNodes
 	}
 
 	minToDivide := 100 // TODO: Configure
@@ -136,7 +151,7 @@ func (p *Provider) replicateDown(ctx context.Context,
 			var ok bool
 			newPairs[i*2], newPairs[i*2+1], ok = partitionUUID(pairs[i], pairs[i+1])
 			if ok == false {
-				return nil, status.Error(codes.InvalidArgument, "uuids are equal")
+				return nil, ErrRangesAreEqual
 			}
 		}
 	}
@@ -181,27 +196,56 @@ func (p *Provider) replicateDown(ctx context.Context,
 	return &pb.ReplicateResponse{}, nil
 }
 
-func (p *Provider) forwardMessage(ctx context.Context, channelID string,
+func (p *Provider) forwardMessage(ctx context.Context, channelID uuid.UUID,
 	req *pb.ReplicateRequest) (errOut error) {
-	channelModel, err := p.modelController.GetChannel(ctx, channelID)
-	if err == model.ErrNoChannel {
-		log.Print("no channel %s", channelID)
-		return nil
-	} else if err != nil && req.Reliable == false {
-		// TODO: Handle non-critical error
-		log.Print(err)
-		return nil
+	reliable := req.Reliable
+	noChannel := false
+	serverID, err := p.channelClient.GetChannelServerID(ctx, channelID)
+	if err == channel.ErrChannelNotFound {
+		noChannel = true
 	} else if err != nil {
 		return err
 	}
 
-	if time.Now().UTC().After(channelModel.ExpireAt) {
-		// Expired channel
+	if noChannel && reliable == false {
 		return nil
 	}
 
+	if req.Reliable {
+		defer func() {
+			channelMessage := pb.ChannelMessage{
+				Id:      req.Id,
+				Message: req.Message,
+				TopicId: req.TopicId,
+				Ts:      req.Ts,
+			}
+
+			payload, err := proto.Marshal(&channelMessage)
+			if err != nil {
+				errOut = multierror.Append(errOut, err)
+				return
+			}
+
+			_, err = p.topicController.PushMessage(ctx, channelID, payload)
+			if err == topic.ErrQueueNotFound {
+				// Either the queue has expired or the channel is unreliable.
+			} else if err != nil {
+				errOut = multierror.Append(errOut, err)
+				return
+			}
+
+			// Error was handled by pushing to the queue, if it exists.
+			errOut = nil
+		}()
+	} else {
+		defer func() {
+			// Snuff errors for unreliable messages.
+			errOut = nil
+		}()
+	}
+
 	rq := pb.InternalPublishRequest{
-		ChannelId: channelID,
+		ChannelId: channelID.String(),
 		Id:        req.Id,
 		Message:   req.Message,
 		Reliable:  req.Reliable,
@@ -209,45 +253,10 @@ func (p *Provider) forwardMessage(ctx context.Context, channelID string,
 		Ts:        req.Ts,
 	}
 
-	if channelModel.QueueID != "" {
-		// Channel is reliable, try to queue.
-		defer func() {
-			if errOut == nil {
-				return
-			}
-
-			data, err := proto.Marshal(&rq)
-			if err != nil {
-				errOut = multierror.Append(errOut, err)
-				return
-			}
-
-			err = p.queueProvider.PublishQueue(ctx,
-				channelModel.QueueID, data)
-			if err != nil {
-				errOut = multierror.Append(errOut, err)
-				return
-			}
-		}()
-	}
-
-	channelServerID, err := uuid.Parse(channelModel.ServerID)
-	if err != nil && req.Reliable == false {
-		// TODO: Handle non-critical error
-		log.Print(err)
-		return nil
-	} else if err != nil {
-		return err
-	}
-
 	subscriberNodes := p.subscriberLayer.GetMap()
-	address, ok := subscriberNodes[channelServerID]
-	if ok == false && req.Reliable == false {
-		// TODO: Handle non-critical error
-		log.Print(err)
-		return nil
-	} else if ok == false {
-		return status.Error(codes.NotFound, "node not found")
+	address, ok := subscriberNodes[serverID]
+	if ok == false {
+		return ErrNodeNotFound
 	}
 
 	url := fmt.Sprintf("https://%s", address)
@@ -256,11 +265,7 @@ func (p *Provider) forwardMessage(ctx context.Context, channelID string,
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelFunc()
 	_, err = rc.InternalPublish(timeoutCtx, &rq)
-	if err != nil && req.Reliable == false {
-		// TODO: Handle non-critical error
-		log.Print(err)
-		return nil
-	} else if err != nil {
+	if err != nil {
 		return err
 	}
 

@@ -115,3 +115,10 @@ service SubscribeInternalService {
     rpc InternalAck(InternalAckRequest) returns (InternalAckResponse);
     rpc InternalEvict(InternalEvictRequest) returns (InternalEvictResponse);
 }
+
+message ChannelMessage {
+    string id = 1;
+    int64 ts = 2;
+    bytes message = 3;
+    string topic_id = 4;
+}

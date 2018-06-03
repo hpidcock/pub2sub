@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -43,6 +44,7 @@ func (p *Provider) Lease(ctx context.Context,
 	for asOf.Before(target) {
 		upTo, err := p.topicController.Subscribe(ctx, topicID, asOf, channelID)
 		if err != nil {
+			log.Print(err)
 			// TODO: Handle error
 			break
 		}

@@ -88,9 +88,8 @@ func (cc *ChannelClient) AcquireChannel(ctx context.Context,
 		return err
 	}
 
-	prevKV := prev.Kvs[0]
-	if prevKV.CreateRevision != 0 {
-		serverID, err := uuid.Parse(string(prevKV.Value))
+	if len(prev.Kvs) > 0 && prev.Kvs[0].CreateRevision != 0 {
+		serverID, err := uuid.Parse(string(prev.Kvs[0].Value))
 		if err != nil {
 			return err
 		}

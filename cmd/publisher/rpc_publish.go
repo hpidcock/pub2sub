@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/thoas/go-funk"
 
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
@@ -19,7 +21,17 @@ func (p *Provider) Publish(ctx context.Context,
 		return &pb.PublishResponse{}, nil
 	}
 
-	topicWidths, err := p.modelController.GetTopicsWidth(ctx, req.TopicIds)
+	topicIDs := make([]uuid.UUID, len(req.TopicIds))
+	for k, v := range req.TopicIds {
+		topicID, err := uuid.Parse(v)
+		if err != nil {
+			return nil, err
+		}
+		topicIDs[k] = topicID
+	}
+
+	// TODO: Use req.Ts for correct subscriber list within a resonable grace period.
+	topicWidths, err := p.topicController.GetTopicsWidth(ctx, topicIDs, time.Now())
 	if err != nil {
 		return nil, err
 	}
