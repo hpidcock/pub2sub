@@ -4,18 +4,58 @@ import (
 	"context"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	"github.com/google/uuid"
+
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
+)
+
+var (
+	ErrFailedToParseChannelID = status.Error(codes.InvalidArgument, "failed to parse channel id")
+	ErrFailedToParseTopicID   = status.Error(codes.InvalidArgument, "failed to parse topic id")
+	ErrFailedToAcquireLease   = status.Error(codes.Internal, "failed to acquire lease")
 )
 
 func (p *Provider) Lease(ctx context.Context,
 	req *pb.LeaseRequest) (*pb.LeaseResponse, error) {
-	// TODO: Finish
-	expireAt := time.Now().UTC().Add(time.Duration(req.ExpireIn) * time.Second)
-	err := p.modelController.Subscribe(ctx, req.ChannelId,
-		req.TopicId, expireAt)
+	start := time.Now()
+
+	channelID, err := uuid.Parse(req.ChannelId)
 	if err != nil {
-		return nil, err
+		return nil, ErrFailedToParseChannelID
 	}
 
-	return &pb.LeaseResponse{}, nil
+	topicID, err := uuid.Parse(req.TopicId)
+	if err != nil {
+		return nil, ErrFailedToParseTopicID
+	}
+
+	expireDuration := time.Duration(req.ExpireIn) * time.Second
+	if p.config.MaxSubscribeDuration < expireDuration {
+		expireDuration = p.config.MaxSubscribeDuration
+	}
+
+	asOf := start
+	target := asOf.Add(expireDuration)
+
+	for asOf.Before(target) {
+		upTo, err := p.topicController.Subscribe(ctx, topicID, asOf, channelID)
+		if err != nil {
+			// TODO: Handle error
+			break
+		}
+
+		asOf = upTo
+	}
+
+	if asOf.After(start) == false {
+		return nil, ErrFailedToAcquireLease
+	}
+
+	res := &pb.LeaseResponse{
+		Ttl: asOf.Unix() - start.Unix(),
+	}
+	return res, nil
 }

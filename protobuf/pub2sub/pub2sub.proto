@@ -67,10 +67,14 @@ message AckResponse {
 message LeaseRequest {
     string channel_id = 1;
     string topic_id = 2;
+
+    // Seconds
     int64 expire_in = 3;
 }
 
 message LeaseResponse {
+    // Seconds acquired for.
+    int64 ttl = 1;
 }
 
 service SubscribeService {

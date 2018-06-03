@@ -11,20 +11,18 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/hpidcock/go-pub-sub-channel"
-	"github.com/hpidcock/pub2sub/pkg/queue"
-	"github.com/hpidcock/pub2sub/pkg/queue_sqs"
-
 	etcd_clientv3 "github.com/coreos/etcd/clientv3"
 	"github.com/go-redis/redis"
 	"github.com/google/uuid"
+	"github.com/hpidcock/go-pub-sub-channel"
 	"github.com/lucas-clemente/quic-go/h2quic"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
+	"github.com/hpidcock/pub2sub/pkg/channel"
 	"github.com/hpidcock/pub2sub/pkg/discovery"
-	"github.com/hpidcock/pub2sub/pkg/model"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
+	"github.com/hpidcock/pub2sub/pkg/topic"
 )
 
 type Provider struct {
@@ -35,12 +33,13 @@ type Provider struct {
 	etcdClient  *etcd_clientv3.Client
 	quicClient  *http.Client
 
-	modelController *model.Controller
-	disc            *discovery.DiscoveryClient
-	subscribers     *discovery.DiscoveryMap
+	disc        *discovery.DiscoveryClient
+	subscribers *discovery.DiscoveryMap
 
-	router        *router.Router
-	queueProvider queue.QueueProviderInterface
+	router *router.Router
+
+	topicController *topic.Controller
+	channelClient   *channel.ChannelClient
 }
 
 func (p *Provider) runGRPCServer(ctx context.Context) error {
@@ -124,6 +123,11 @@ func (p *Provider) runLayerDiscovery(ctx context.Context) error {
 	return p.subscribers.Watch(ctx, "subscribers")
 }
 
+func (p *Provider) runChannelLease(ctx context.Context) error {
+	log.Printf("etcd: discovering subscribers")
+	return p.channelClient.Lease(ctx)
+}
+
 func (p *Provider) init() error {
 	var err error
 	p.redisClient = redis.NewClient(&redis.Options{
@@ -131,12 +135,8 @@ func (p *Provider) init() error {
 	})
 
 	p.router = router.NewRouter()
-	p.queueProvider, err = queue_sqs.NewSQSQueueProvider()
-	if err != nil {
-		return err
-	}
 
-	p.modelController, err = model.NewController(p.queueProvider, p.redisClient)
+	p.topicController, err = topic.NewController(p.redisClient)
 	if err != nil {
 		return err
 	}
@@ -157,6 +157,11 @@ func (p *Provider) init() error {
 	}
 
 	p.subscribers, err = discovery.NewDiscoveryMap(p.disc)
+	if err != nil {
+		return err
+	}
+
+	p.channelClient, err = channel.NewChannelClient(p.etcdClient, p.serverID)
 	if err != nil {
 		return err
 	}
@@ -219,6 +224,9 @@ func run(ctx context.Context) error {
 	})
 	eg.Go(func() error {
 		return provider.runLayerDiscovery(egCtx)
+	})
+	eg.Go(func() error {
+		return provider.runChannelLease(egCtx)
 	})
 	err = eg.Wait()
 	if err != nil {

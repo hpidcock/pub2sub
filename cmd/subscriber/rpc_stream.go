@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
 	"time"
+
+	"github.com/hashicorp/go-multierror"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/google/uuid"
 	"github.com/hpidcock/go-pub-sub-channel"
 
@@ -21,42 +21,53 @@ var (
 )
 
 func (p *Provider) Stream(req *pb.StreamRequest,
-	call pb.SubscribeService_StreamServer) error {
-	var err error
-	channelID := req.ChannelId
-	_, err = uuid.Parse(channelID)
+	call pb.SubscribeService_StreamServer) (outErr error) {
+	channelID, err := uuid.Parse(req.ChannelId)
 	if err != nil {
 		return status.Error(codes.InvalidArgument, "bad channel id")
 	}
 
+	reliable := req.Reliable
+
 	ctx, cancelFunc := context.WithCancel(call.Context())
 	defer cancelFunc()
 
-	reliable := req.Reliable
-	serverID := p.serverID.String()
-
-	oldChannel, newChannel, err := p.modelController.AcquireChannel(ctx,
-		channelID, serverID, reliable)
+	err = p.channelClient.AcquireChannel(ctx, channelID, func(ctx context.Context,
+		serverID uuid.UUID, channelID uuid.UUID) error {
+		return p.evict(ctx, serverID, channelID)
+	})
 	if err != nil {
 		return err
 	}
+	defer func() {
+		releaseCtx, cancelFunc := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancelFunc()
+		err := p.channelClient.ReleaseChannel(releaseCtx, channelID)
+		if err != nil {
+			outErr = multierror.Append(outErr, err)
+		}
+	}()
 
-	log.Print("got channel")
-	spew.Dump(newChannel)
-
-	if oldChannel.ServerID != "" {
-		// TODO: Evict the user from the other server.
+	if reliable {
+		err = p.topicController.CreateOrExtendQueue(ctx, channelID, p.config.QueueKeepAliveDuration)
+		if err != nil {
+			return err
+		}
+	} else {
+		err = p.topicController.DeleteQueue(ctx, channelID)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Subscribe after acquire so we don't evict ourselves.
-	internalChannel := p.router.Subscribe(channelID)
+	internalChannel := p.router.Subscribe(channelID.String())
 	ackList := make(map[string]router.Message)
 	defer func() {
-		done := p.router.Unsubscribe(channelID, internalChannel)
+		done := p.router.Unsubscribe(channelID.String(), internalChannel)
 		for _, msg := range ackList {
 			msg.Result <- context.Canceled
 		}
-
 		for {
 			select {
 			case <-done:
@@ -118,11 +129,13 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 		return ErrInvalidMessage
 	}
 
+	refreshChannelDuration := p.config.MaxSubscribeDuration / 2
+	time.NewTicker()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return context.Canceled
-		// TODO: Handle pulling from Queue/Acking queue
 		case msg := <-internalChannel:
 			err = handleMessage(msg)
 			if err != nil {

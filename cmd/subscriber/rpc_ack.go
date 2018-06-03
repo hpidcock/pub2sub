@@ -16,17 +16,12 @@ func (p *Provider) Ack(ctx context.Context,
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelFunc()
 
-	channelModel, err := p.modelController.GetChannel(timeoutCtx, req.ChannelId)
+	channelID, err := uuid.Parse(req.ChannelId)
 	if err != nil {
 		return nil, err
 	}
 
-	if time.Now().UTC().After(channelModel.ExpireAt) {
-		// Expired channel
-		return &pb.AckResponse{}, nil
-	}
-
-	channelServerID, err := uuid.Parse(channelModel.ServerID)
+	serverID, err := p.channelClient.GetChannelServerID(ctx, channelID)
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +31,7 @@ func (p *Provider) Ack(ctx context.Context,
 		ChannelId: req.ChannelId,
 	}
 
-	if channelServerID == p.serverID {
+	if serverID == p.serverID {
 		err = p.router.Publish(timeoutCtx, req.ChannelId, &rq)
 		if err != nil {
 			return nil, err
@@ -46,7 +41,7 @@ func (p *Provider) Ack(ctx context.Context,
 	}
 
 	subscriberNodes := p.subscribers.GetMap()
-	address, ok := subscriberNodes[channelServerID]
+	address, ok := subscriberNodes[serverID]
 	if ok == false {
 		return nil, status.Error(codes.NotFound, "node not found")
 	}

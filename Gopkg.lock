@@ -2,6 +2,12 @@
 
 
 [[projects]]
+  name = "github.com/BurntSushi/toml"
+  packages = ["."]
+  revision = "b26d9c308763d68093482582cea63d69be07a0f0"
+  version = "v0.3.0"
+
+[[projects]]
   branch = "master"
   name = "github.com/aead/chacha20"
   packages = [
@@ -35,8 +41,8 @@
     "mvcc/mvccpb",
     "pkg/types"
   ]
-  revision = "70c8726202dd91e482fb4029fd14af1d4ed1d5af"
-  version = "v3.3.5"
+  revision = "932c3c01f9d67471d67ff82c38acca196847f039"
+  version = "v3.3.6"
 
 [[projects]]
   name = "github.com/davecgh/go-spew"
@@ -45,6 +51,19 @@
   version = "v1.1.0"
 
 [[projects]]
+  branch = "master"
+  name = "github.com/fatih/camelcase"
+  packages = ["."]
+  revision = "44e46d280b43ec1531bb25252440e34f1b800b65"
+
+[[projects]]
+  name = "github.com/fatih/structs"
+  packages = ["."]
+  revision = "a720dfa8df582c51dee1b36feabb906bde1588bd"
+  version = "v1.0"
+
+[[projects]]
+  branch = "master"
   name = "github.com/go-redis/redis"
   packages = [
     ".",
@@ -56,8 +75,14 @@
     "internal/singleflight",
     "internal/util"
   ]
-  revision = "0f9028adf0837cf93c9705817493e5f6997cf026"
-  version = "v6.11.0"
+  revision = "d066784be7297384bb4a4591d05b8df828bc8ebd"
+  source = "github.com/kassiansun/redis.git"
+
+[[projects]]
+  name = "github.com/gobuffalo/packr"
+  packages = ["."]
+  revision = "7f4074995d431987caaa35088199f13c44b24440"
+  version = "v1.11.0"
 
 [[projects]]
   name = "github.com/gogo/protobuf"
@@ -112,9 +137,27 @@
 
 [[projects]]
   branch = "master"
+  name = "github.com/howeyc/crc16"
+  packages = ["."]
+  revision = "2b2a61e366a66d3efb279e46176e7291001e0354"
+
+[[projects]]
+  branch = "master"
   name = "github.com/hpidcock/go-pub-sub-channel"
   packages = ["."]
   revision = "e1f7308d0ba79bee2e36e86640b8d8e0ebf8c97e"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/hpidcock/go-time-helpers"
+  packages = ["."]
+  revision = "baf040f5e86a67d199ad6edc2952d5d7505fdeb9"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/koding/multiconfig"
+  packages = ["."]
+  revision = "69c27309b2d751c576b59ea9c3726597c2375da3"
 
 [[projects]]
   branch = "master"
@@ -148,16 +191,10 @@
   revision = "d2f86524cced5186554df90d92529757d22c1cb6"
 
 [[projects]]
-  name = "github.com/pmezard/go-difflib"
-  packages = ["difflib"]
-  revision = "792786c7400a136282c1664665ae0a8db921c6c2"
-  version = "v1.0.0"
-
-[[projects]]
-  name = "github.com/stretchr/testify"
-  packages = ["assert"]
-  revision = "12b6f73e6084dad08a7c6e575284b177ecafbc71"
-  version = "v1.2.1"
+  name = "github.com/pkg/errors"
+  packages = ["."]
+  revision = "645ef00459ed84a119197bfb8d8205042c6df63d"
+  version = "v0.8.0"
 
 [[projects]]
   name = "github.com/thoas/go-funk"
@@ -182,7 +219,7 @@
     "curve25519",
     "hkdf"
   ]
-  revision = "ab813273cd59e1333f7ae7bff5d027d4aadf528c"
+  revision = "5ba7f63082460102a45837dbd1827e10f9479ac0"
 
 [[projects]]
   branch = "master"
@@ -196,7 +233,7 @@
     "internal/timeseries",
     "trace"
   ]
-  revision = "dfa909b99c79129e1100513e5cd36307665e5723"
+  revision = "1e491301e022f8f977054da4c2d852decd59571f"
 
 [[projects]]
   branch = "master"
@@ -235,7 +272,7 @@
   branch = "master"
   name = "google.golang.org/genproto"
   packages = ["googleapis/rpc/status"]
-  revision = "694d95ba50e67b2e363f3483057db5d4910c18f9"
+  revision = "81158efcc9f219c511e4d3c0d61a0e6e49c01a24"
 
 [[projects]]
   name = "google.golang.org/grpc"
@@ -269,9 +306,15 @@
   revision = "41344da2231b913fa3d983840a57a6b1b7b631a1"
   version = "v1.12.0"
 
+[[projects]]
+  name = "gopkg.in/yaml.v2"
+  packages = ["."]
+  revision = "5420a8b6744d3b0345ab293f6fcba19c978f1183"
+  version = "v2.2.1"
+
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "45eae281b5bdafb252f0a6ae1af797a107f49a232c36787349efa67fe736bd55"
+  inputs-digest = "77d0231b61f96eee59c55b4845cbc044b9a7c2494e6212fe68583110081a750b"
   solver-name = "gps-cdcl"
   solver-version = 1

@@ -1,14 +1,18 @@
 package main
 
 import (
+	"time"
+
 	"github.com/koding/multiconfig"
 )
 
 type Config struct {
-	JWTKey       string
-	Port         int    `default:"5003"`
-	RedisAddress string `default:"localhost:6379"`
-	EtcdAddress  string `default:"localhost:2379"`
+	JWTKey                 string
+	Port                   int           `default:"5003"`
+	RedisAddress           string        `default:"localhost:6379"`
+	EtcdAddress            string        `default:"localhost:2379"`
+	MaxSubscribeDuration   time.Duration `default:"5m"`
+	QueueKeepAliveDuration time.Duration `default:"5m"`
 }
 
 func NewConfig() (Config, error) {
