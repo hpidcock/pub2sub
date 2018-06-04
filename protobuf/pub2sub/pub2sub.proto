@@ -55,8 +55,7 @@ message StreamMessageEvent {
     bytes message = 3;
     bool reliable = 4;
     string topic_id = 5;
-    // Empty if reliable is false.
-    string ack_id = 6;
+    int64 ack_id = 6;
 }
 
 message StreamResponse {
@@ -68,7 +67,7 @@ message StreamResponse {
 
 message AckRequest {
     string channel_id = 1;
-    string ack_id = 2;
+    int64 ack_id = 2;
 }
 
 message AckResponse {
@@ -107,7 +106,7 @@ message InternalPublishResponse {
 
 message InternalAckRequest {
     string channel_id = 1;
-    string ack_id = 2;
+    int64 ack_id = 2;
 }
 
 message InternalAckResponse {

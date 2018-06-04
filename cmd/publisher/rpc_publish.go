@@ -48,6 +48,7 @@ func (p *Provider) Publish(ctx context.Context,
 			continue
 		}
 
+		// TODO: Move off to worker routines.
 		address := replicators[rand.Int()%len(replicators)]
 		url := fmt.Sprintf("https://%s", address)
 		rc := pb.NewReplicationServiceProtobufClient(url, p.quicClient)

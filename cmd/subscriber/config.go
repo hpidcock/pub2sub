@@ -7,7 +7,6 @@ import (
 )
 
 type Config struct {
-	JWTKey                 string
 	Port                   int           `default:"5003"`
 	RedisAddress           string        `default:"localhost:6379"`
 	EtcdAddress            string        `default:"localhost:2379"`

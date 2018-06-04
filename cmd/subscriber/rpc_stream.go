@@ -6,7 +6,6 @@ import (
 	"log"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/hashicorp/go-multierror"
 
 	"google.golang.org/grpc/codes"
@@ -15,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hpidcock/go-pub-sub-channel"
 
+	"github.com/hpidcock/pub2sub/pkg/deadline_list"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
 )
 
@@ -82,11 +82,22 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 	// Subscribe after acquire so we don't evict ourselves.
 	log.Printf("stream %s subscribing to cross routine messages\n", req.ChannelId)
 	internalChannel := p.router.Subscribe(channelID.String())
-	ackList := make(map[string]router.Message)
+
+	var acks *deadline_list.List
+	if reliable {
+		// TODO: Configurable deadline
+		acks = deadline_list.New(2 * time.Second)
+	}
 	defer func() {
 		done := p.router.Unsubscribe(channelID.String(), internalChannel)
-		for _, msg := range ackList {
-			msg.Result <- ErrChannelClosing
+		if reliable {
+			oldAcks := acks.Close()
+			for _, ack := range oldAcks {
+				switch msg := ack.(type) {
+				case *router.Message:
+					msg.Result <- ErrChannelClosing
+				}
+			}
 		}
 		for {
 			select {
@@ -113,8 +124,6 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 		return err
 	}
 
-	// TODO: Handle pulling and acking with redis.
-
 	handleMessage := func(msg router.Message) error {
 		switch obj := msg.Obj.(type) {
 		case *pb.InternalEvictRequest:
@@ -122,19 +131,30 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 			onReleasedChan = msg.Result
 			return context.Canceled
 		case *pb.InternalAckRequest:
-			spew.Dump(obj)
-			// TODO: Handle JWT AckIDs
-			ack, ok := ackList[obj.AckId]
-			if ok {
-				ack.Result <- nil
-				delete(ackList, obj.AckId)
+			if acks == nil {
+				return nil
 			}
+
+			ack := acks.Remove(obj.AckId)
+			if ack == nil {
+				// Worst case scenario, the message is redelivered.
+				msg.Result <- nil
+				return nil
+			}
+
+			switch ackMsg := ack.(type) {
+			case *router.Message:
+				ackMsg.Result <- nil
+			case string:
+				// stream id
+				// TODO: XDEL in redis
+			}
+
 			msg.Result <- nil
 			return nil
 		case *pb.InternalPublishRequest:
 			if reliable && obj.Reliable {
-				ackID := uuid.New().String()
-				// TODO: Generate JWT as AckID
+				ackID := acks.Push(msg)
 				err = call.Send(&pb.StreamResponse{
 					Event: &pb.StreamResponse_StreamMessageEvent{
 						StreamMessageEvent: &pb.StreamMessageEvent{
@@ -148,10 +168,10 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 					},
 				})
 				if err != nil {
+					acks.Remove(ackID)
 					msg.Result <- err
 					return err
 				}
-				ackList[ackID] = msg
 			} else {
 				err = call.Send(&pb.StreamResponse{
 					Event: &pb.StreamResponse_StreamMessageEvent{
@@ -195,6 +215,18 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 			err = handleMessage(msg)
 			if err != nil {
 				return err
+			}
+		case <-acks.Wait():
+			ack := acks.Pop()
+			if ack == nil {
+				continue
+			}
+			switch msg := ack.(type) {
+			case *router.Message:
+				msg.Result <- context.DeadlineExceeded
+			case string:
+				// stream id
+				// TODO: handle reset stream read id for redelivery
 			}
 		case <-refreshChannel:
 			log.Printf("stream %s extending queue lease\n", req.ChannelId)

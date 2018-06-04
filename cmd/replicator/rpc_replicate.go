@@ -62,7 +62,8 @@ func partitionUUID(a uuid.UUID, b uuid.UUID) (left uuid.UUID, right uuid.UUID, o
 	return
 }
 
-func (p *Provider) Replicate(ctx context.Context, req *pb.ReplicateRequest) (*pb.ReplicateResponse, error) {
+func (p *Provider) Replicate(ctx context.Context,
+	req *pb.ReplicateRequest) (*pb.ReplicateResponse, error) {
 	if p.config.TerminationLayer {
 		return p.replicateForward(ctx, req)
 	} else {
@@ -156,12 +157,12 @@ func (p *Provider) replicateDown(ctx context.Context,
 		}
 	}
 
-	// TODO: Reuse go routines or use worker routines.
 	eg, egCtx := errgroup.WithContext(ctx)
 	for i := 0; i < len(pairs); i += 2 {
 		rangeBegin := pairs[i]
 		rangeEnd := pairs[i+1]
 
+		// TODO: Move off to worker routines.
 		eg.Go(func() error {
 			address := replicators[rand.Int()%len(replicators)]
 			url := fmt.Sprintf("https://%s", address)
