@@ -4,24 +4,27 @@ import (
 	"context"
 	"errors"
 	"log"
+	"math"
 	"time"
 
+	"github.com/cenkalti/backoff"
+	"github.com/gogo/protobuf/proto"
+	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
-
+	"github.com/hpidcock/go-pub-sub-channel"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/google/uuid"
-	"github.com/hpidcock/go-pub-sub-channel"
-
 	"github.com/hpidcock/pub2sub/pkg/deadline_list"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
+	"github.com/hpidcock/pub2sub/pkg/topic"
 )
 
 var (
 	ErrInvalidMessage = errors.New("invalid message")
 	ErrBadChannelID   = status.Error(codes.InvalidArgument, "bad channel id")
 	ErrChannelClosing = errors.New("channel closing")
+	ErrUnknownType    = errors.New("unknown type")
 )
 
 func (p *Provider) Stream(req *pb.StreamRequest,
@@ -134,23 +137,22 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 			if acks == nil {
 				return nil
 			}
-
 			ack := acks.Remove(obj.AckId)
 			if ack == nil {
 				// Worst case scenario, the message is redelivered.
 				msg.Result <- nil
 				return nil
 			}
-
 			switch ackMsg := ack.(type) {
 			case *router.Message:
 				ackMsg.Result <- nil
+				msg.Result <- nil
 			case string:
-				// stream id
-				// TODO: XDEL in redis
+				// TODO: batch deletion
+				msg.Result <- p.topicController.DeleteMessage(ctx, channelID, ackMsg)
+			default:
+				msg.Result <- ErrUnknownType
 			}
-
-			msg.Result <- nil
 			return nil
 		case *pb.InternalPublishRequest:
 			if reliable && obj.Reliable {
@@ -196,6 +198,59 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 		}
 	}
 
+	handlePullMessage := func(msgEntry topic.MessageEntry) error {
+		var msg pb.ChannelMessage
+		err := proto.Unmarshal(msgEntry.Payload, &msg)
+		if err != nil {
+			// TODO: Handle deleting corrupt messages.
+			return err
+		}
+
+		// All pull messages are reliable, just need to see if
+		// the channel is reliable.
+		if reliable {
+			ackID := acks.Push(msgEntry.ID)
+			err = call.Send(&pb.StreamResponse{
+				Event: &pb.StreamResponse_StreamMessageEvent{
+					StreamMessageEvent: &pb.StreamMessageEvent{
+						Id:       msg.Id,
+						Ts:       msg.Ts,
+						Message:  msg.Message,
+						Reliable: true,
+						TopicId:  msg.TopicId,
+						AckId:    ackID,
+					},
+				},
+			})
+			if err != nil {
+				acks.Remove(ackID)
+				return err
+			}
+		} else {
+			err = call.Send(&pb.StreamResponse{
+				Event: &pb.StreamResponse_StreamMessageEvent{
+					StreamMessageEvent: &pb.StreamMessageEvent{
+						Id:       msg.Id,
+						Ts:       msg.Ts,
+						Message:  msg.Message,
+						Reliable: false,
+						TopicId:  msg.TopicId,
+					},
+				},
+			})
+			if err != nil {
+				return err
+			}
+
+			// TODO: batch deletion
+			err = p.topicController.DeleteMessage(ctx, channelID, msg.Id)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
 	var refreshChannel <-chan time.Time
 	if reliable {
 		refreshChannelDuration := p.config.MaxSubscribeDuration / 2
@@ -205,6 +260,14 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 	}
 
 	log.Printf("stream %s waiting for events\n", req.ChannelId)
+	pullBackoff := backoff.NewExponentialBackOff()
+	pullBackoff.InitialInterval = 50 * time.Millisecond
+	pullBackoff.MaxInterval = 5 * time.Second
+	pullBackoff.MaxElapsedTime = time.Duration(math.MaxInt64)
+	pullTimer := time.NewTimer(0)
+	defer pullTimer.Stop()
+	lastReadMessage := ""
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -216,6 +279,29 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 			if err != nil {
 				return err
 			}
+		case <-pullTimer.C:
+			// TODO: handle limit config
+			messages, err := p.topicController.ReadMessages(ctx, channelID, lastReadMessage, 10)
+			if err != nil {
+				// TODO: Handle retryable errors.
+				return err
+			}
+			if len(messages) > 0 {
+				// Succesful pull means their might be more data.
+				pullBackoff.Reset()
+			}
+			for _, msgEntry := range messages {
+				err := handlePullMessage(msgEntry)
+				if err != nil {
+					// TODO: Handle dead/corrupt messages.
+					// TODO: Handle retryable errors.
+					return err
+				}
+				if msgEntry.ID > lastReadMessage {
+					lastReadMessage = msgEntry.ID
+				}
+			}
+			pullTimer.Reset(pullBackoff.NextBackOff())
 		case <-acks.Wait():
 			ack := acks.Pop()
 			if ack == nil {
@@ -225,8 +311,11 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 			case *router.Message:
 				msg.Result <- context.DeadlineExceeded
 			case string:
-				// stream id
-				// TODO: handle reset stream read id for redelivery
+				// If we missed an ack for an older message
+				// next iteration of pulling will redeliver this message.
+				if msg < lastReadMessage {
+					lastReadMessage = msg
+				}
 			}
 		case <-refreshChannel:
 			log.Printf("stream %s extending queue lease\n", req.ChannelId)

@@ -200,7 +200,7 @@ func (m *Controller) PushMessage(ctx context.Context,
 	pipeline := m.redisClient.Pipeline()
 	res := pipeline.EvalSha(m.pushIfExists,
 		[]string{channelID.String()},
-		"payload", payload)
+		"p", payload)
 	_, err := pipeline.Exec()
 	if err == redis.Nil {
 		return "", ErrQueueNotFound
@@ -215,4 +215,49 @@ func (m *Controller) PushMessage(ctx context.Context,
 	}
 
 	return str, nil
+}
+
+func (m *Controller) DeleteMessage(ctx context.Context,
+	channelID uuid.UUID, id string) error {
+	err := m.redisClient.XDel(channelID.String(), id).Err()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+type MessageEntry struct {
+	ID      string
+	Payload []byte
+}
+
+func (m *Controller) ReadMessages(ctx context.Context,
+	channelID uuid.UUID, lastMessageID string, limit int) ([]MessageEntry, error) {
+	id := channelID.String()
+	if lastMessageID == "" {
+		lastMessageID = "0-0"
+	}
+
+	res, err := m.redisClient.XReadN(int64(limit),
+		id, lastMessageID).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	entries, ok := res[id]
+	if ok == false {
+		return nil, nil
+	}
+
+	var messages []MessageEntry
+	for _, entry := range entries {
+		value, _ := entry.Fields["p"]
+		messages = append(messages, MessageEntry{
+			ID:      id,
+			Payload: []byte(value),
+		})
+	}
+
+	return messages, nil
 }

@@ -11,4 +11,5 @@ if c ~= -2 then
 end
 redis.call('xadd', channelID, '0-1', 'new_queue', '0')
 redis.call('expire', channelID, expireIn)
+redis.call('xdel', channelID, '0-1')
 return 2

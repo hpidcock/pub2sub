@@ -26,6 +26,12 @@
   revision = "198357931e6129b810c9c77c12e0dd754846170c"
 
 [[projects]]
+  name = "github.com/cenkalti/backoff"
+  packages = ["."]
+  revision = "2ea60e5f094469f9e65adb9cd103795b73ae743e"
+  version = "v2.0.0"
+
+[[projects]]
   branch = "master"
   name = "github.com/cheekybits/genny"
   packages = ["generic"]
@@ -75,7 +81,7 @@
     "internal/singleflight",
     "internal/util"
   ]
-  revision = "d066784be7297384bb4a4591d05b8df828bc8ebd"
+  revision = "23b5a3394713e8dbd28134808d31b4086eaf506a"
   source = "github.com/kassiansun/redis.git"
 
 [[projects]]
@@ -137,12 +143,6 @@
 
 [[projects]]
   branch = "master"
-  name = "github.com/howeyc/crc16"
-  packages = ["."]
-  revision = "2b2a61e366a66d3efb279e46176e7291001e0354"
-
-[[projects]]
-  branch = "master"
   name = "github.com/hpidcock/go-pub-sub-channel"
   packages = ["."]
   revision = "e1f7308d0ba79bee2e36e86640b8d8e0ebf8c97e"
@@ -191,6 +191,18 @@
   version = "v0.8.0"
 
 [[projects]]
+  name = "github.com/pmezard/go-difflib"
+  packages = ["difflib"]
+  revision = "792786c7400a136282c1664665ae0a8db921c6c2"
+  version = "v1.0.0"
+
+[[projects]]
+  name = "github.com/stretchr/testify"
+  packages = ["assert"]
+  revision = "12b6f73e6084dad08a7c6e575284b177ecafbc71"
+  version = "v1.2.1"
+
+[[projects]]
   name = "github.com/thoas/go-funk"
   packages = ["."]
   revision = "14304e8530de7dbb909c8305591b3a8370dd9dbb"
@@ -213,7 +225,7 @@
     "curve25519",
     "hkdf"
   ]
-  revision = "5ba7f63082460102a45837dbd1827e10f9479ac0"
+  revision = "df8d4716b3472e4a531c33cedbe537dae921a1a9"
 
 [[projects]]
   branch = "master"
@@ -309,6 +321,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "3e18c068a34596033e991985408681ff313dcfc4890721d7f1565e3f24b8e35a"
+  inputs-digest = "55ea10a9ffbcd23482bd6999fbf90352c08e443dccf4637cb17ba06df7934fe9"
   solver-name = "gps-cdcl"
   solver-version = 1

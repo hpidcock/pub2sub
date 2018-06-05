@@ -184,7 +184,7 @@ type Cmdable interface {
 	XReadBlockN(time_ms, count int64, keys ...string) *StreamEntrySliceMapCmd
 	XGroupCreate(key string, group_name, start string) *StatusCmd
 	XGroupSetID(key string, group_name, start string) *StatusCmd
-	XGroupDelete(key string, group_name string) *IntCmd
+	XGroupDestroy(key string, group_name string) *IntCmd
 	XGroupDeleteConsumer(key string, group_name, consumer_name string) *IntCmd
 	XReadGroup(group_name, consumer_name string, keys ...string) *StreamEntrySliceMapCmd
 	XReadGroupN(group_name, consumer_name string, count int64, keys ...string) *StreamEntrySliceMapCmd
@@ -1438,8 +1438,8 @@ func (c *cmdable) XGroupSetID(key, group_name, start string) *StatusCmd {
 	return cmd
 }
 
-func (c *cmdable) XGroupDelete(key, group_name string) *IntCmd {
-	args := []interface{}{"xgroup", "delgroup", key, group_name}
+func (c *cmdable) XGroupDestroy(key, group_name string) *IntCmd {
+	args := []interface{}{"xgroup", "destroy", key, group_name}
 	cmd := NewIntCmd(args...)
 	c.process(cmd)
 	return cmd
