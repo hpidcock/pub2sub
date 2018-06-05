@@ -48,6 +48,7 @@ func NewChannelClient(etcdClient *v3.Client,
 }
 
 // GetChannelServerID returns the binded serverID or ErrChannelNotFound
+// FIXME: Cache value in redis.
 func (cc *ChannelClient) GetChannelServerID(ctx context.Context,
 	channelID uuid.UUID) (uuid.UUID, error) {
 	key := fmt.Sprintf("channel-%s", channelID.String())

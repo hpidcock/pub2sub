@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
-	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/google/uuid"
+	"golang.org/x/sync/errgroup"
 
 	"google.golang.org/grpc"
 
@@ -14,11 +14,13 @@ import (
 )
 
 func main() {
-	pubConnection, err := grpc.Dial("localhost:5001", grpc.WithInsecure())
-	if err != nil {
-		log.Fatal(err)
-	}
-	pub := pb.NewPublishServiceClient(pubConnection)
+	var topicIDString string
+	var consumers int
+	flag.StringVar(&topicIDString, "topic", "e7619379-2ce4-426d-a9a7-31d530b6f59c", "")
+	flag.IntVar(&consumers, "consumers", 500, "")
+	flag.Parse()
+
+	topicID := uuid.Must(uuid.Parse(topicIDString))
 
 	subConnection, err := grpc.Dial("localhost:5003", grpc.WithInsecure())
 	if err != nil {
@@ -26,9 +28,24 @@ func main() {
 	}
 	sub := pb.NewSubscribeServiceClient(subConnection)
 
-	channelID := uuid.Must(uuid.Parse("872b8833-0402-41ef-9096-53917fbf0286"))
-	topicID := uuid.Must(uuid.Parse("e7619379-2ce4-426d-a9a7-31d530b6f59c"))
-	spew.Dump(channelID)
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	defer cancelFunc()
+
+	eg, egCtx := errgroup.WithContext(ctx)
+	for i := 0; i < consumers; i++ {
+		eg.Go(func() error {
+			return consumer(egCtx, sub, topicID)
+		})
+	}
+
+	err = eg.Wait()
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func consumer(ctx context.Context, sub pb.SubscribeServiceClient, topicID uuid.UUID) error {
+	channelID := uuid.New()
 
 	log.Print("stream")
 	stream, err := sub.Stream(context.Background(), &pb.StreamRequest{
@@ -36,12 +53,12 @@ func main() {
 		Reliable:  true,
 	})
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	introMessage, err := stream.Recv()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	if evt, ok := introMessage.Event.(*pb.StreamResponse_StreamOpenedEvent); ok {
@@ -57,34 +74,17 @@ func main() {
 		TopicId:   topicID.String(),
 	})
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	go func() {
-		for i := 0; i < 4092; i++ {
-			_, err = pub.Publish(context.Background(), &pb.PublishRequest{
-				Id:       uuid.New().String(),
-				Message:  []byte("hello"),
-				Reliable: true,
-				TopicIds: []string{topicID.String()},
-				Ts:       time.Now().UnixNano(),
-			})
-			if err != nil {
-				log.Fatal(err)
-			}
-		}
-		log.Print("publish")
-	}()
-
 	log.Print("stream recv")
-
+	receiveCount := 0
 	for {
 		res, err := stream.Recv()
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 
-		spew.Dump(res)
 		if evt, ok := res.Event.(*pb.StreamResponse_StreamMessageEvent); ok {
 			if evt.StreamMessageEvent.Reliable == true {
 				_, err = sub.Ack(context.Background(), &pb.AckRequest{
@@ -98,10 +98,15 @@ func main() {
 		} else {
 			log.Fatal("server returned the wrong event")
 		}
+
+		receiveCount++
+		log.Print(receiveCount)
 	}
 
 	err = stream.CloseSend()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
+
+	return nil
 }

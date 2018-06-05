@@ -42,7 +42,6 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 	ctx, cancelFunc := context.WithCancel(call.Context())
 	defer cancelFunc()
 
-	log.Printf("acquiring %s\n", req.ChannelId)
 	err = p.channelClient.AcquireChannel(ctx, channelID, func(ctx context.Context,
 		serverID uuid.UUID, channelID uuid.UUID) error {
 		return p.evict(ctx, serverID, channelID)
@@ -68,14 +67,12 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 	reliable := req.Reliable
 	resumed := false
 	if reliable {
-		log.Printf("stream %s obtaining reliable queue\n", req.ChannelId)
 		resumed, err = p.topicController.CreateOrExtendQueue(ctx, channelID,
 			p.config.QueueKeepAliveDuration)
 		if err != nil {
 			return err
 		}
 	} else {
-		log.Printf("stream %s deleting reliable queue\n", req.ChannelId)
 		err = p.topicController.DeleteQueue(ctx, channelID)
 		if err != nil {
 			return err
@@ -83,7 +80,6 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 	}
 
 	// Subscribe after acquire so we don't evict ourselves.
-	log.Printf("stream %s subscribing to cross routine messages\n", req.ChannelId)
 	internalChannel := p.router.Subscribe(channelID.String())
 
 	var acks *deadline_list.List
@@ -146,7 +142,7 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 			switch ackMsg := ack.(type) {
 			case *router.Message:
 				ackMsg.Result <- nil
-				msg.Result <- nil
+				msg.Result <- nil // FIXME: Chan closed crash
 			case string:
 				// TODO: batch deletion
 				msg.Result <- p.topicController.DeleteMessage(ctx, channelID, ackMsg)
@@ -156,7 +152,7 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 			return nil
 		case *pb.InternalPublishRequest:
 			if reliable && obj.Reliable {
-				ackID := acks.Push(msg)
+				ackID := acks.Push(&msg)
 				err = call.Send(&pb.StreamResponse{
 					Event: &pb.StreamResponse_StreamMessageEvent{
 						StreamMessageEvent: &pb.StreamMessageEvent{
@@ -243,7 +239,7 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 			}
 
 			// TODO: batch deletion
-			err = p.topicController.DeleteMessage(ctx, channelID, msg.Id)
+			err = p.topicController.DeleteMessage(ctx, channelID, msgEntry.ID)
 			if err != nil {
 				return err
 			}
@@ -259,7 +255,6 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 		refreshChannel = ticker.C
 	}
 
-	log.Printf("stream %s waiting for events\n", req.ChannelId)
 	pullBackoff := backoff.NewExponentialBackOff()
 	pullBackoff.InitialInterval = 50 * time.Millisecond
 	pullBackoff.MaxInterval = 5 * time.Second
@@ -271,10 +266,8 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("stream %s context canceled\n", req.ChannelId)
 			return context.Canceled
 		case msg := <-internalChannel:
-			log.Printf("stream %s got cross event %v\n", req.ChannelId, msg.Obj)
 			err = handleMessage(msg)
 			if err != nil {
 				return err
@@ -318,7 +311,6 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 				}
 			}
 		case <-refreshChannel:
-			log.Printf("stream %s extending queue lease\n", req.ChannelId)
 			err = p.topicController.ExtendQueue(ctx,
 				channelID, p.config.QueueKeepAliveDuration)
 			if err != nil {

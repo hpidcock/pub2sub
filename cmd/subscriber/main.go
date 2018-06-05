@@ -238,6 +238,18 @@ func run(ctx context.Context) error {
 
 func main() {
 	var err error
+
+	//
+	// f, err := os.Create("subscriber.prof")
+	// if err != nil {
+	// 	log.Fatal("could not create CPU profile: ", err)
+	// }
+	// if err := pprof.StartCPUProfile(f); err != nil {
+	// 	log.Fatal("could not start CPU profile: ", err)
+	// }
+	// defer pprof.StopCPUProfile()
+	//
+
 	ctx, cancelFunc := context.WithCancel(context.Background())
 
 	sigChan := make(chan os.Signal, 1)
@@ -257,6 +269,6 @@ func main() {
 	err = run(ctx)
 	time.Sleep(1 * time.Second)
 	if err != nil {
-		log.Fatal(err)
+		log.Print(err)
 	}
 }

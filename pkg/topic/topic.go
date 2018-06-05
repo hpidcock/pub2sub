@@ -241,7 +241,9 @@ func (m *Controller) ReadMessages(ctx context.Context,
 
 	res, err := m.redisClient.XReadN(int64(limit),
 		id, lastMessageID).Result()
-	if err != nil {
+	if err == redis.Nil {
+		return nil, nil
+	} else if err != nil {
 		return nil, err
 	}
 
@@ -254,7 +256,7 @@ func (m *Controller) ReadMessages(ctx context.Context,
 	for _, entry := range entries {
 		value, _ := entry.Fields["p"]
 		messages = append(messages, MessageEntry{
-			ID:      id,
+			ID:      entry.Id,
 			Payload: []byte(value),
 		})
 	}
