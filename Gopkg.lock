@@ -8,34 +8,10 @@
   version = "v0.3.0"
 
 [[projects]]
-  branch = "master"
-  name = "github.com/aead/chacha20"
-  packages = [
-    ".",
-    "chacha"
-  ]
-  revision = "e2538746bfea853aaa589feb8ec46bd46ee78f86"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/bifurcation/mint"
-  packages = [
-    ".",
-    "syntax"
-  ]
-  revision = "198357931e6129b810c9c77c12e0dd754846170c"
-
-[[projects]]
   name = "github.com/cenkalti/backoff"
   packages = ["."]
   revision = "2ea60e5f094469f9e65adb9cd103795b73ae743e"
   version = "v2.0.0"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/cheekybits/genny"
-  packages = ["generic"]
-  revision = "9127e812e1e9e501ce899a18121d316ecb52e4ba"
 
 [[projects]]
   name = "github.com/coreos/etcd"
@@ -103,12 +79,10 @@
 [[projects]]
   name = "github.com/golang/protobuf"
   packages = [
-    "jsonpb",
     "proto",
     "ptypes",
     "ptypes/any",
     "ptypes/duration",
-    "ptypes/struct",
     "ptypes/timestamp"
   ]
   revision = "b4deda0973fb4c70b50d226b1af49f3da59f5265"
@@ -134,15 +108,6 @@
 
 [[projects]]
   branch = "master"
-  name = "github.com/hashicorp/golang-lru"
-  packages = [
-    ".",
-    "simplelru"
-  ]
-  revision = "0fb14efe8c47ae851c0034ed7a448854d3d34cf3"
-
-[[projects]]
-  branch = "master"
   name = "github.com/hpidcock/go-pub-sub-channel"
   packages = ["."]
   revision = "8bfe8ab854e3c8540059c0287635fd07719b9f2f"
@@ -158,37 +123,6 @@
   name = "github.com/koding/multiconfig"
   packages = ["."]
   revision = "69c27309b2d751c576b59ea9c3726597c2375da3"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/lucas-clemente/aes12"
-  packages = ["."]
-  revision = "cd47fb39b79f867c6e4e5cd39cf7abd799f71670"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/lucas-clemente/quic-go"
-  packages = [
-    ".",
-    "h2quic",
-    "internal/ackhandler",
-    "internal/congestion",
-    "internal/crypto",
-    "internal/flowcontrol",
-    "internal/handshake",
-    "internal/protocol",
-    "internal/utils",
-    "internal/wire",
-    "qerr"
-  ]
-  revision = "cd91507ca6f6aaea53ecaf4d371cdbba3e606523"
-  source = "github.com/hpidcock/quic-go"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/lucas-clemente/quic-go-certificates"
-  packages = ["."]
-  revision = "d2f86524cced5186554df90d92529757d22c1cb6"
 
 [[projects]]
   name = "github.com/pkg/errors"
@@ -215,25 +149,6 @@
   version = "0.2"
 
 [[projects]]
-  name = "github.com/twitchtv/twirp"
-  packages = [
-    ".",
-    "ctxsetters",
-    "internal/contextkeys"
-  ]
-  revision = "1b8455b42110feb46a56aeec1ea0020067f46b11"
-  version = "v5.4.1"
-
-[[projects]]
-  branch = "master"
-  name = "golang.org/x/crypto"
-  packages = [
-    "curve25519",
-    "hkdf"
-  ]
-  revision = "b47b1587369238182299fe4dad77d05b8b461e06"
-
-[[projects]]
   branch = "master"
   name = "golang.org/x/net"
   packages = [
@@ -252,12 +167,6 @@
   name = "golang.org/x/sync"
   packages = ["errgroup"]
   revision = "1d60e4601c6fd243af51cc01ddf169918a5407ca"
-
-[[projects]]
-  branch = "master"
-  name = "golang.org/x/sys"
-  packages = ["cpu"]
-  revision = "9527bec2660bd847c050fda93a0f0c6dee0800bb"
 
 [[projects]]
   name = "golang.org/x/text"
@@ -339,6 +248,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "afd5db6c539d50e27e7c1534d29d016192e4a2715f81eaeb328d5f341d74943f"
+  inputs-digest = "41d9b11d939197d0678af6dd139de95121f650170552df4764bc32766fb07c7a"
   solver-name = "gps-cdcl"
   solver-version = 1
