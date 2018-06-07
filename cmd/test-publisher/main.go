@@ -6,6 +6,8 @@ import (
 	"log"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/google/uuid"
 
 	"google.golang.org/grpc"
@@ -22,25 +24,36 @@ func main() {
 
 	topicID := uuid.Must(uuid.Parse(topicIDString))
 
-	pubConnection, err := grpc.Dial("localhost:5001", grpc.WithInsecure())
-	if err != nil {
-		log.Fatal(err)
-	}
-	pub := pb.NewPublishServiceClient(pubConnection)
-
+	eg, _ := errgroup.WithContext(context.Background())
 	start := time.Now()
 	failed := 0
-	for i := 0; i < sendCount; i++ {
-		_, err = pub.Publish(context.Background(), &pb.PublishRequest{
-			Id:       uuid.New().String(),
-			Message:  []byte("hello"),
-			Reliable: true,
-			TopicIds: []string{topicID.String()},
-			Ts:       time.Now().UnixNano(),
+	for x := 0; x < 8; x++ {
+		c := x
+		eg.Go(func() error {
+			pubConnection, err := grpc.Dial("localhost:5001", grpc.WithInsecure())
+			if err != nil {
+				return err
+			}
+			pub := pb.NewPublishServiceClient(pubConnection)
+			for i := c; i < sendCount; i += 8 {
+				_, err = pub.Publish(context.Background(), &pb.PublishRequest{
+					Id:       uuid.New().String(),
+					Message:  []byte("hello"),
+					Reliable: true,
+					TopicIds: []string{topicID.String()},
+					Ts:       time.Now().UnixNano(),
+				})
+				if err != nil {
+					return err
+				}
+			}
+			return nil
 		})
-		if err != nil {
-			failed++
-		}
+	}
+
+	err := eg.Wait()
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	log.Print(time.Since(start))

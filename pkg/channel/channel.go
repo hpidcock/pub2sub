@@ -8,6 +8,7 @@ import (
 	"time"
 
 	v3 "github.com/coreos/etcd/clientv3"
+	"github.com/go-redis/redis"
 	"github.com/google/uuid"
 	multierror "github.com/hashicorp/go-multierror"
 )
@@ -31,10 +32,13 @@ type ChannelClient struct {
 	leaseIDLock sync.RWMutex
 
 	serverID uuid.UUID
+
+	redisClient redis.UniversalClient
 }
 
 // NewChannelClient returns a new client for acquiring channels and their allocated server.
 func NewChannelClient(etcdClient *v3.Client,
+	redisClient redis.UniversalClient,
 	serverID uuid.UUID) (*ChannelClient, error) {
 	cc := &ChannelClient{
 		etcdClient:  etcdClient,
@@ -42,16 +46,30 @@ func NewChannelClient(etcdClient *v3.Client,
 		kvClient:    v3.NewKV(etcdClient),
 		watchClient: v3.Watcher(etcdClient),
 		serverID:    serverID,
+		redisClient: redisClient,
 	}
 
 	return cc, nil
 }
 
 // GetChannelServerID returns the binded serverID or ErrChannelNotFound
-// FIXME: Cache value in redis.
 func (cc *ChannelClient) GetChannelServerID(ctx context.Context,
 	channelID uuid.UUID) (uuid.UUID, error) {
-	key := fmt.Sprintf("channel-%s", channelID.String())
+	channelIDString := channelID.String()
+	cachedServerIDString, err := cc.redisClient.Get("cache_" + channelIDString).Result()
+	if err == redis.Nil {
+	} else if err != nil {
+		return uuid.Nil, err
+	} else {
+		serverID, err := uuid.Parse(cachedServerIDString)
+		if err != nil {
+			// TODO: handle error gracefully.
+			return uuid.Nil, err
+		}
+		return serverID, nil
+	}
+
+	key := fmt.Sprintf("channel-%s", channelIDString)
 	res, err := cc.kvClient.Get(ctx, key, v3.WithSerializable())
 	if err != nil {
 		return uuid.Nil, err
@@ -61,8 +79,17 @@ func (cc *ChannelClient) GetChannelServerID(ctx context.Context,
 		return uuid.Nil, ErrChannelNotFound
 	}
 
-	serverID, err := uuid.Parse(string(res.Kvs[0].Value))
+	serverIDString := string(res.Kvs[0].Value)
+	serverID, err := uuid.Parse(serverIDString)
 	if err != nil {
+		return uuid.Nil, err
+	}
+
+	// TODO: configure expiry.
+	err = cc.redisClient.Set("cache_"+channelIDString,
+		serverIDString, 2*time.Minute).Err()
+	if err != nil {
+		// TODO: handle error gracefully.
 		return uuid.Nil, err
 	}
 
@@ -111,6 +138,11 @@ func (cc *ChannelClient) AcquireChannel(ctx context.Context,
 
 	if res.Succeeded == false {
 		return ErrFailedAcquire
+	}
+
+	err = cc.redisClient.Del("cache_" + channelID.String()).Err()
+	if err != nil {
+		return err
 	}
 
 	return nil
