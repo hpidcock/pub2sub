@@ -24,7 +24,7 @@ func main() {
 	channelID := uuid.Must(uuid.Parse(channelIDString))
 	topicID := uuid.Must(uuid.Parse(topicIDString))
 
-	subConnection, err := grpc.Dial("localhost:5003", grpc.WithInsecure())
+	subConnection, err := grpc.Dial("localhost:5005", grpc.WithInsecure())
 	if err != nil {
 		log.Fatal(err)
 	}

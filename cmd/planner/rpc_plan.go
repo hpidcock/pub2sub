@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"runtime"
+	"sort"
 	"sync"
 	"time"
 
@@ -50,6 +51,11 @@ func (p *Provider) Plan(ctx context.Context,
 		return nil, ErrBadRangeEnd
 	}
 
+	executorNodes := p.executors.GetMap()
+	if len(executorNodes) == 0 {
+		return nil, ErrNoNodes
+	}
+
 	channelIDs, err := p.topicController.ScanTopic(ctx, topicID, time.Now(), begin, end)
 	if err != nil {
 		return nil, err
@@ -90,7 +96,7 @@ func (p *Provider) Plan(ctx context.Context,
 				}
 
 				if noChannel {
-					offlineMutex.Unlock()
+					offlineMutex.Lock()
 					offline = append(offline, channelID)
 					offlineMutex.Unlock()
 				} else {
@@ -129,6 +135,8 @@ func (p *Provider) Plan(ctx context.Context,
 			eg.Go(func() error {
 				for i := n; i < numOffline; i += offlineWorkers {
 					channelID := offline[i]
+
+					log.Print("queing")
 					_, err := p.topicController.PushMessage(egCtx, channelID, payload)
 					if err == topic.ErrQueueNotFound {
 						log.Println("dropping reliable message: no queue")
@@ -142,11 +150,14 @@ func (p *Provider) Plan(ctx context.Context,
 		}
 	}
 
-	executorNodes := p.executors.GetMap()
 	executorNodesStr := make(map[string]string)
-	for k, v := range executorNodes {
-		executorNodesStr[k.String()] = v
+	var executors []string
+	for executorUUID, v := range executorNodes {
+		executorID := executorUUID.String()
+		executorNodesStr[executorID] = v
+		executors = append(executors, executorID)
 	}
+	sort.Strings(executors)
 
 	for serverUUID, channelUUIDs := range groups {
 		serverID := serverUUID.String()
@@ -155,19 +166,15 @@ func (p *Provider) Plan(ctx context.Context,
 			channelIDs[i] = channelUUID.String()
 		}
 		eg.Go(func() error {
-			targetExecutor := ""
-			address := ""
+			targetExecutor := executors[0]
 			// Somewhat stable rendezvous mapping.
-			for executorNodeID, v := range executorNodesStr {
-				if executorNodeID > serverID {
-					targetExecutor = executorNodeID
-					address = v
+			for _, executorID := range executors {
+				if executorID > serverID {
+					targetExecutor = executorID
+					break
 				}
 			}
-
-			if targetExecutor == "" || address == "" {
-				log.Fatal("bad state")
-			}
+			address := executorNodesStr[targetExecutor]
 
 			conn, err := p.grpcClients.Connect(address)
 			if err != nil {
@@ -181,6 +188,7 @@ func (p *Provider) Plan(ctx context.Context,
 				Reliable:   req.Reliable,
 				TopicId:    req.TopicId,
 				Ts:         req.Ts,
+				ServerId:   serverID,
 			}
 
 			service := pb.NewExecuteServiceClient(conn)

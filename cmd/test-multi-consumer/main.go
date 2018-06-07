@@ -41,7 +41,7 @@ func main() {
 func consumer(ctx context.Context, topicID uuid.UUID) error {
 	channelID := uuid.New()
 
-	subConnection, err := grpc.Dial("localhost:5003", grpc.WithInsecure())
+	subConnection, err := grpc.Dial("localhost:5005", grpc.WithInsecure())
 	if err != nil {
 		log.Fatal(err)
 	}

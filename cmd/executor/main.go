@@ -148,7 +148,7 @@ func run(ctx context.Context) error {
 
 	var err error
 	log.SetFlags(log.Lshortfile | log.LstdFlags)
-	log.Print("starting pub2sub publisher")
+	log.Print("starting pub2sub executor")
 
 	provider := &Provider{
 		serverID: uuid.New(),

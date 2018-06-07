@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"math/rand"
 	"time"
@@ -41,7 +40,7 @@ func (p *Provider) Publish(ctx context.Context,
 		return &pb.PublishResponse{}, nil
 	}
 
-	replicators := p.replicators.GetList()
+	distributors := p.distributors.GetList()
 	for k, topicID := range req.TopicIds {
 		width := topicWidths[k]
 		if width == 0 {
@@ -49,21 +48,19 @@ func (p *Provider) Publish(ctx context.Context,
 		}
 
 		// TODO: Move off to worker routines.
-		address := replicators[rand.Int()%len(replicators)]
-		url := fmt.Sprintf("https://%s", address)
-		rc := pb.NewReplicationServiceProtobufClient(url, p.quicClient)
+		address := distributors[rand.Int()%len(distributors)]
+		conn, err := p.grpcClients.Connect(address)
+		service := pb.NewDistributeServiceClient(conn)
 
-		rq := pb.ReplicateRequest{
+		rq := pb.DistributeRequest{
 			Id:         req.Id,
 			Message:    req.Message,
 			Reliable:   req.Reliable,
 			TopicId:    topicID,
 			Ts:         req.Ts,
-			RangeBegin: "00000000-0000-0000-0000-000000000000",
-			RangeEnd:   "ffffffff-ffff-ffff-ffff-ffffffffffff",
 			RangeWidth: int32(width),
 		}
-		_, err = rc.Replicate(ctx, &rq)
+		_, err = service.Distribute(ctx, &rq)
 		if err != nil && req.Reliable == false {
 			log.Print(err)
 			continue

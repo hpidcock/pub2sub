@@ -31,11 +31,15 @@ func (p *Provider) InternalPublish(req *pb.InternalPublishRequest,
 		}
 
 		// Ignore errors if they are unreliable messages.
-		call.Send(&pb.InternalPublishResponse{
+		err = call.Send(&pb.InternalPublishResponse{
 			ChannelId: channelID,
-			Success:   err != nil,
+			Success:   err == nil,
 		})
-		// TODO: handle error returned by Send
+
+		if err != nil {
+			log.Print(err)
+			// TODO: handle error returned by Send
+		}
 	}
 
 	wg.Add(len(req.ChannelId))
@@ -45,5 +49,6 @@ func (p *Provider) InternalPublish(req *pb.InternalPublishRequest,
 	}
 
 	wg.Wait()
+
 	return nil
 }

@@ -54,10 +54,14 @@ func (p *Provider) Execute(ctx context.Context,
 				return
 			}
 
+			var newErr error
 			for channelID, errored := range unhandled {
 				if errored == false {
 					continue
 				}
+
+				log.Print(errOut)
+				log.Print("queing")
 
 				// TODO: Handle parallel inserts.
 				_, err = p.topicController.PushMessage(ctx, channelID, payload)
@@ -65,12 +69,18 @@ func (p *Provider) Execute(ctx context.Context,
 					// Either the queue has expired or the channel is unreliable.
 					log.Println("dropping reliable message: no queue")
 				} else if err != nil {
-					errOut = multierror.Append(errOut, err)
+					newErr = multierror.Append(newErr, err)
 				}
+			}
+
+			if newErr != nil {
+				errOut = newErr
+				return
 			}
 
 			// Error was handled by pushing to the queue, if it exists.
 			errOut = nil
+			res = &pb.ExecuteResponse{}
 		}()
 	} else {
 		defer func() {
@@ -79,6 +89,7 @@ func (p *Provider) Execute(ctx context.Context,
 			}
 			// Snuff errors for unreliable messages.
 			errOut = nil
+			res = &pb.ExecuteResponse{}
 		}()
 	}
 
@@ -128,6 +139,7 @@ func (p *Provider) Execute(ctx context.Context,
 		channelID, err := uuid.Parse(resMsg.ChannelId)
 		if err != nil {
 			// TODO: handle error, for now, it's as if it failed to send.
+			log.Print(err)
 			continue
 		}
 

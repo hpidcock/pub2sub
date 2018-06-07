@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"time"
@@ -14,10 +12,10 @@ import (
 	etcd_clientv3 "github.com/coreos/etcd/clientv3"
 	"github.com/go-redis/redis"
 	"github.com/google/uuid"
-	"github.com/lucas-clemente/quic-go/h2quic"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
+	"github.com/hpidcock/pub2sub/pkg/clientcache"
 	"github.com/hpidcock/pub2sub/pkg/discovery"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
 	"github.com/hpidcock/pub2sub/pkg/topic"
@@ -29,11 +27,11 @@ type Provider struct {
 
 	redisClient *redis.Client
 	etcdClient  *etcd_clientv3.Client
-	quicClient  *http.Client
+	grpcClients *clientcache.ClientCache
 
 	topicController *topic.Controller
 	disc            *discovery.DiscoveryClient
-	replicators     *discovery.DiscoveryList
+	distributors    *discovery.DiscoveryList
 }
 
 func (p *Provider) runGRPCServer(ctx context.Context) error {
@@ -66,37 +64,6 @@ func (p *Provider) runGRPCServer(ctx context.Context) error {
 	return nil
 }
 
-func (p *Provider) runQUICServer(ctx context.Context) error {
-	endpoint := fmt.Sprintf(":%d", p.config.Port)
-
-	handler := pb.NewPublishServiceServer(p, nil)
-	server := h2quic.Server{
-		Server: &http.Server{
-			Addr:    endpoint,
-			Handler: handler,
-		},
-	}
-
-	closeChan := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			server.Close()
-		case <-closeChan:
-			return
-		}
-	}()
-
-	log.Printf("serving twirp/QUIC endpoints on %s", endpoint)
-	err := server.ListenAndServeTLS("server.crt", "server.key")
-	defer close(closeChan)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func (p *Provider) runDiscoveryBroadcast(ctx context.Context) error {
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -109,8 +76,8 @@ func (p *Provider) runDiscoveryBroadcast(ctx context.Context) error {
 }
 
 func (p *Provider) runReplicatorDiscovery(ctx context.Context) error {
-	log.Printf("etcd: discovering replicators on layer 0")
-	return p.replicators.Watch(ctx, "replicators-0")
+	log.Printf("etcd: discovering distributors")
+	return p.distributors.Watch(ctx, "distributors")
 }
 
 func (p *Provider) init() error {
@@ -118,6 +85,8 @@ func (p *Provider) init() error {
 	p.redisClient = redis.NewClient(&redis.Options{
 		Addr: p.config.RedisAddress,
 	})
+
+	p.grpcClients = clientcache.NewCache(60*time.Second, 10*time.Second)
 
 	p.topicController, err = topic.NewController(p.redisClient)
 	if err != nil {
@@ -139,7 +108,7 @@ func (p *Provider) init() error {
 		return err
 	}
 
-	p.replicators, err = discovery.NewDiscoveryList(p.disc)
+	p.distributors, err = discovery.NewDiscoveryList(p.disc)
 	if err != nil {
 		return err
 	}
@@ -171,13 +140,6 @@ func run(ctx context.Context) error {
 
 	provider := &Provider{
 		serverID: uuid.New(),
-		quicClient: &http.Client{
-			Transport: &h2quic.RoundTripper{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		},
 	}
 	provider.config, err = NewConfig()
 	if err != nil {
@@ -193,9 +155,6 @@ func run(ctx context.Context) error {
 	eg, egCtx := errgroup.WithContext(ctx)
 	eg.Go(func() error {
 		return provider.runGRPCServer(egCtx)
-	})
-	eg.Go(func() error {
-		return provider.runQUICServer(egCtx)
 	})
 	eg.Go(func() error {
 		return provider.runDiscoveryBroadcast(egCtx)

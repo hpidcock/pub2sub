@@ -20,6 +20,7 @@ func NewServer(laddr string, handler PacketHandler) (*Server, error) {
 	server := &Server{
 		bufferChan: make(chan []byte, 1000),
 		closeChan:  make(chan struct{}, 0),
+		handler:    handler,
 	}
 
 	addr, err := net.ResolveUDPAddr("udp", laddr)
