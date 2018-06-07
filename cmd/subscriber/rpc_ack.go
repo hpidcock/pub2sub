@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/google/uuid"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
 	"google.golang.org/grpc/codes"
@@ -26,13 +26,11 @@ func (p *Provider) Ack(ctx context.Context,
 		return nil, err
 	}
 
-	rq := pb.InternalAckRequest{
-		AckId:     req.AckId,
-		ChannelId: req.ChannelId,
-	}
-
 	if serverID == p.serverID {
-		err = p.router.Publish(timeoutCtx, req.ChannelId, &rq)
+		err = p.router.Publish(timeoutCtx, req.ChannelId, &pb.InternalAckMessage{
+			AckId:     req.AckId,
+			ChannelId: req.ChannelId,
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -46,9 +44,19 @@ func (p *Provider) Ack(ctx context.Context,
 		return nil, status.Error(codes.NotFound, "node not found")
 	}
 
-	url := fmt.Sprintf("https://%s", address)
-	rc := pb.NewSubscribeInternalServiceProtobufClient(url, p.quicClient)
-	_, err = rc.InternalAck(timeoutCtx, &rq)
+	msg := &pb.UDPUnreliableMessage{
+		Type:      pb.UDPMessageType_ACK,
+		ChannelId: req.ChannelId,
+		AckId:     req.AckId,
+	}
+
+	data, err := proto.Marshal(msg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Best effort.
+	err = p.udpClient.Send(address, data)
 	if err != nil {
 		return nil, err
 	}

@@ -5,7 +5,7 @@ import (
 )
 
 type Config struct {
-	Port         int    `default:"5004"`
+	Port         int    `default:"5002"`
 	RedisAddress string `default:"localhost:6379"`
 	EtcdAddress  string `default:"localhost:2379"`
 }

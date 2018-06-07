@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"time"
@@ -14,11 +12,11 @@ import (
 	etcd_clientv3 "github.com/coreos/etcd/clientv3"
 	"github.com/go-redis/redis"
 	"github.com/google/uuid"
-	"github.com/lucas-clemente/quic-go/h2quic"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
 	"github.com/hpidcock/pub2sub/pkg/channel"
+	"github.com/hpidcock/pub2sub/pkg/clientcache"
 	"github.com/hpidcock/pub2sub/pkg/discovery"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
 	"github.com/hpidcock/pub2sub/pkg/topic"
@@ -30,13 +28,12 @@ type Provider struct {
 
 	redisClient *redis.Client
 	etcdClient  *etcd_clientv3.Client
-	quicClient  *http.Client
+	grpcClients *clientcache.ClientCache
 
 	topicController *topic.Controller
 	channelClient   *channel.ChannelClient
 	disc            *discovery.DiscoveryClient
-	nextLayer       *discovery.DiscoveryList
-	subscriberLayer *discovery.DiscoveryMap
+	executors       *discovery.DiscoveryMap
 }
 
 func (p *Provider) runGRPCServer(ctx context.Context) error {
@@ -47,7 +44,7 @@ func (p *Provider) runGRPCServer(ctx context.Context) error {
 	}
 
 	server := grpc.NewServer()
-	pb.RegisterReplicationServiceServer(server, p)
+	pb.RegisterPlanServiceServer(server, p)
 
 	closeChan := make(chan struct{})
 	go func() {
@@ -69,59 +66,21 @@ func (p *Provider) runGRPCServer(ctx context.Context) error {
 	return nil
 }
 
-func (p *Provider) runQUICServer(ctx context.Context) error {
-	endpoint := fmt.Sprintf(":%d", p.config.Port)
-
-	handler := pb.NewReplicationServiceServer(p, nil)
-	server := h2quic.Server{
-		Server: &http.Server{
-			Addr:    endpoint,
-			Handler: handler,
-		},
-	}
-
-	closeChan := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			server.Close()
-		case <-closeChan:
-			return
-		}
-	}()
-
-	log.Printf("serving twirp/QUIC endpoints on %s", endpoint)
-	err := server.ListenAndServeTLS("server.crt", "server.key")
-	defer close(closeChan)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func (p *Provider) runDiscoveryBroadcast(ctx context.Context) error {
 	hostname, err := os.Hostname()
 	if err != nil {
 		return err
 	}
 
-	serviceName := fmt.Sprintf("replicators-%d", p.config.Layer)
+	serviceName := "planners"
 	endpoint := fmt.Sprintf("%s:%d", hostname, p.config.Port)
 	log.Printf("etcd: broadcasting %s %s at %s", serviceName, p.serverID, endpoint)
 	return p.disc.Broadcast(ctx, serviceName, p.serverID, endpoint)
 }
 
 func (p *Provider) runLayerDiscovery(ctx context.Context) error {
-	if p.config.TerminationLayer {
-		log.Printf("etcd: discovering subscribers")
-		return p.subscriberLayer.Watch(ctx, "subscribers")
-	} else {
-		nextLayerIndex := p.config.Layer + 1
-		serviceName := fmt.Sprintf("replicators-%d", nextLayerIndex)
-		log.Printf("etcd: discovering replicators on layer %d", nextLayerIndex)
-		return p.nextLayer.Watch(ctx, serviceName)
-	}
+	log.Printf("etcd: discovering executors")
+	return p.executors.Watch(ctx, "executors")
 }
 
 func (p *Provider) init() error {
@@ -129,6 +88,8 @@ func (p *Provider) init() error {
 	p.redisClient = redis.NewClient(&redis.Options{
 		Addr: p.config.RedisAddress,
 	})
+
+	p.grpcClients = clientcache.NewCache(60*time.Second, 10*time.Second)
 
 	p.topicController, err = topic.NewController(p.redisClient)
 	if err != nil {
@@ -150,19 +111,12 @@ func (p *Provider) init() error {
 		return err
 	}
 
-	if p.config.TerminationLayer {
-		p.subscriberLayer, err = discovery.NewDiscoveryMap(p.disc)
-		if err != nil {
-			return err
-		}
-	} else {
-		p.nextLayer, err = discovery.NewDiscoveryList(p.disc)
-		if err != nil {
-			return err
-		}
+	p.executors, err = discovery.NewDiscoveryMap(p.disc)
+	if err != nil {
+		return err
 	}
 
-	p.channelClient, err = channel.NewChannelClient(p.etcdClient, p.serverID)
+	p.channelClient, err = channel.NewChannelClient(p.etcdClient, p.redisClient, p.serverID)
 	if err != nil {
 		return err
 	}
@@ -181,6 +135,8 @@ func (p *Provider) close() error {
 		return err
 	}
 
+	p.grpcClients.Close()
+
 	return nil
 }
 
@@ -194,13 +150,6 @@ func run(ctx context.Context) error {
 
 	provider := &Provider{
 		serverID: uuid.New(),
-		quicClient: &http.Client{
-			Transport: &h2quic.RoundTripper{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		},
 	}
 	provider.config, err = NewConfig()
 	if err != nil {
@@ -216,9 +165,6 @@ func run(ctx context.Context) error {
 	eg, egCtx := errgroup.WithContext(ctx)
 	eg.Go(func() error {
 		return provider.runGRPCServer(egCtx)
-	})
-	eg.Go(func() error {
-		return provider.runQUICServer(egCtx)
 	})
 	eg.Go(func() error {
 		return provider.runDiscoveryBroadcast(egCtx)

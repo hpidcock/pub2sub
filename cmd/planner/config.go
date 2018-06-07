@@ -5,11 +5,9 @@ import (
 )
 
 type Config struct {
-	Port             int    `default:"5002"`
-	RedisAddress     string `default:"localhost:6379"`
-	EtcdAddress      string `default:"localhost:2379"`
-	Layer            int    `default:"0"`
-	TerminationLayer bool   `default:"true"`
+	Port         int    `default:"5003"`
+	RedisAddress string `default:"localhost:6379"`
+	EtcdAddress  string `default:"localhost:2379"`
 }
 
 func NewConfig() (Config, error) {

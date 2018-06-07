@@ -7,7 +7,7 @@ import (
 )
 
 type Config struct {
-	Port                   int           `default:"5003"`
+	Port                   int           `default:"5005"`
 	RedisAddress           string        `default:"localhost:6379"`
 	EtcdAddress            string        `default:"localhost:2379"`
 	MaxSubscribeDuration   time.Duration `default:"5m"`

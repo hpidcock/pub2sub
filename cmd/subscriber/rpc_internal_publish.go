@@ -2,20 +2,48 @@ package main
 
 import (
 	"context"
+	"log"
+	"sync"
 	"time"
 
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
 )
 
-func (p *Provider) InternalPublish(ctx context.Context,
-	req *pb.InternalPublishRequest) (*pb.InternalPublishResponse, error) {
+func (p *Provider) InternalPublish(req *pb.InternalPublishRequest,
+	call pb.SubscribeInternalService_InternalPublishServer) error {
+	ctx := call.Context()
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelFunc()
 
-	err := p.router.Publish(timeoutCtx, req.ChannelId, req)
-	if err != nil {
-		return nil, err
+	reliable := req.Message.GetReliable()
+
+	wg := sync.WaitGroup{}
+	process := func(channelID string) {
+		defer wg.Done()
+		err := p.router.Publish(timeoutCtx, channelID, req.Message)
+		if reliable == false {
+			return
+		}
+
+		if err != nil {
+			// TODO: Handle error messages
+			log.Print(err)
+		}
+
+		// Ignore errors if they are unreliable messages.
+		call.Send(&pb.InternalPublishResponse{
+			ChannelId: channelID,
+			Success:   err != nil,
+		})
+		// TODO: handle error returned by Send
 	}
 
-	return &pb.InternalPublishResponse{}, nil
+	wg.Add(len(req.ChannelId))
+	for _, channelID := range req.ChannelId {
+		// TODO: use worker threads.
+		go process(channelID)
+	}
+
+	wg.Wait()
+	return nil
 }

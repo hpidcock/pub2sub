@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/google/uuid"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
 	"google.golang.org/grpc/codes"
@@ -13,16 +13,15 @@ import (
 func (p *Provider) evict(ctx context.Context,
 	serverID uuid.UUID, channelID uuid.UUID) error {
 	var err error
-	rq := pb.InternalEvictRequest{
-		ChannelId: channelID.String(),
-	}
 
+	channelIDString := channelID.String()
 	if serverID == p.serverID {
-		err = p.router.Publish(ctx, rq.ChannelId, &rq)
+		err = p.router.Publish(ctx, channelIDString, &pb.InternalEvictMessage{
+			ChannelId: channelIDString,
+		})
 		if err != nil {
 			return err
 		}
-
 		return nil
 	}
 
@@ -32,9 +31,18 @@ func (p *Provider) evict(ctx context.Context,
 		return status.Error(codes.NotFound, "node not found")
 	}
 
-	url := fmt.Sprintf("https://%s", address)
-	rc := pb.NewSubscribeInternalServiceProtobufClient(url, p.quicClient)
-	_, err = rc.InternalEvict(ctx, &rq)
+	msg := &pb.UDPUnreliableMessage{
+		Type:      pb.UDPMessageType_EVICT,
+		ChannelId: channelIDString,
+	}
+
+	data, err := proto.Marshal(msg)
+	if err != nil {
+		return err
+	}
+
+	// Best effort.
+	err = p.udpClient.Send(address, data)
 	if err != nil {
 		return err
 	}

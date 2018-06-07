@@ -2,21 +2,17 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"math/rand"
+	"runtime"
+	"sync"
 	"time"
-
-	"github.com/hashicorp/go-multierror"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
-
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/hpidcock/pub2sub/pkg/channel"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
 	"github.com/hpidcock/pub2sub/pkg/topic"
 )
@@ -31,48 +27,14 @@ var (
 	ErrBadRangeWidth  = status.Error(codes.InvalidArgument, "bad range width")
 )
 
-func partitionUUID(a uuid.UUID, b uuid.UUID) (left uuid.UUID, right uuid.UUID, ok bool) {
-	left = uuid.UUID{
-		0xff, 0xff, 0xff, 0xff,
-		0xff, 0xff, 0xff, 0xff,
-		0xff, 0xff, 0xff, 0xff,
-		0xff, 0xff, 0xff, 0xff}
-	right = uuid.UUID{
-		0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00}
+var (
+	numCPUs = runtime.NumCPU()
+)
 
-	for i, aa := range a {
-		bb := b[i]
-		if aa == bb {
-			left[i], right[i] = aa, aa
-			continue
-		}
+func (p *Provider) Plan(ctx context.Context,
+	req *pb.PlanRequest) (*pb.PlanResponse, error) {
+	reliable := req.Reliable
 
-		d := bb - aa
-		h := aa + d/2
-		left[i] = h
-		right[i] = h + 1
-		ok = true
-		return
-	}
-
-	ok = false
-	return
-}
-
-func (p *Provider) Replicate(ctx context.Context,
-	req *pb.ReplicateRequest) (*pb.ReplicateResponse, error) {
-	if p.config.TerminationLayer {
-		return p.replicateForward(ctx, req)
-	} else {
-		return p.replicateDown(ctx, req)
-	}
-}
-
-func (p *Provider) replicateForward(ctx context.Context,
-	req *pb.ReplicateRequest) (*pb.ReplicateResponse, error) {
 	topicID, err := uuid.Parse(req.TopicId)
 	if err != nil {
 		return nil, ErrBadTopicID
@@ -93,98 +55,142 @@ func (p *Provider) replicateForward(ctx context.Context,
 		return nil, err
 	}
 
-	if len(channelIDs) == 0 {
-		return &pb.ReplicateResponse{}, nil
+	numChannels := len(channelIDs)
+	if numChannels == 0 {
+		return &pb.PlanResponse{}, nil
 	}
 
-	eg, egCtx := errgroup.WithContext(ctx)
-	for _, v := range channelIDs {
-		channelID := v
-		eg.Go(func() error {
-			return p.forwardMessage(egCtx, channelID, req)
-		})
+	var wg sync.WaitGroup
+	var offlineMutex sync.Mutex
+	var offline []uuid.UUID
+
+	var groupsMutex sync.Mutex
+	groups := make(map[uuid.UUID][]uuid.UUID)
+
+	workers := numCPUs * 32
+	if numChannels < workers {
+		workers = numChannels
 	}
 
-	err = eg.Wait()
-	if err != nil {
-		return nil, err
-	}
+	wg.Add(workers)
+	for n := 0; n < workers; n++ {
+		go func(n int) {
+			defer wg.Done()
+			for i := n; i < numChannels; i += workers {
+				channelID := channelIDs[i]
 
-	return &pb.ReplicateResponse{}, nil
-}
+				noChannel := false
+				serverID, err := p.channelClient.GetChannelServerID(ctx, channelID)
+				if err != nil {
+					noChannel = true
+				}
 
-func (p *Provider) replicateDown(ctx context.Context,
-	req *pb.ReplicateRequest) (*pb.ReplicateResponse, error) {
-	var err error
-	if req.RangeWidth == 0 {
-		return nil, ErrBadRangeWidth
-	}
+				if noChannel && reliable == false {
+					return
+				}
 
-	begin, err := uuid.Parse(req.RangeBegin)
-	if err != nil {
-		return nil, ErrBadRangeBegin
-	}
-
-	end, err := uuid.Parse(req.RangeEnd)
-	if err != nil {
-		return nil, ErrBadRangeEnd
-	}
-
-	replicators := p.nextLayer.GetList()
-	if len(replicators) == 0 {
-		return nil, ErrNoNodes
-	}
-
-	minToDivide := 100 // TODO: Configure
-	rangeWidth := int(req.RangeWidth)
-
-	pairs := []uuid.UUID{begin, end}
-	partitions := 1
-	for rangeWidth > minToDivide {
-		if partitions*2 > len(replicators) {
-			break
-		}
-		rangeWidth = rangeWidth / 2
-		partitions = partitions * 2
-
-		newPairs := make([]uuid.UUID, len(pairs)*2)
-		for i := 0; i < len(pairs); i += 2 {
-			var ok bool
-			newPairs[i*2], newPairs[i*2+1], ok = partitionUUID(pairs[i], pairs[i+1])
-			if ok == false {
-				return nil, ErrRangesAreEqual
+				if noChannel {
+					offlineMutex.Unlock()
+					offline = append(offline, channelID)
+					offlineMutex.Unlock()
+				} else {
+					groupsMutex.Lock()
+					group, _ := groups[serverID]
+					groups[serverID] = append(group, channelID)
+					groupsMutex.Unlock()
+				}
 			}
+		}(n)
+	}
+	wg.Wait()
+
+	eg, egCtx := errgroup.WithContext(ctx)
+	numOffline := len(offline)
+	if numOffline > 0 {
+		channelMessage := pb.ChannelMessage{
+			Id:      req.Id,
+			Message: req.Message,
+			TopicId: req.TopicId,
+			Ts:      req.Ts,
+		}
+
+		payload, err := proto.Marshal(&channelMessage)
+		if err != nil {
+			return nil, err
+		}
+
+		offlineWorkers := numCPUs * 32
+		if numOffline < offlineWorkers {
+			offlineWorkers = numOffline
+		}
+
+		for x := 0; x < offlineWorkers; x++ {
+			n := x
+			eg.Go(func() error {
+				for i := n; i < numOffline; i += offlineWorkers {
+					channelID := offline[i]
+					_, err := p.topicController.PushMessage(egCtx, channelID, payload)
+					if err == topic.ErrQueueNotFound {
+						log.Println("dropping reliable message: no queue")
+						// Either the queue has expired or the channel is unreliable.
+					} else if err != nil {
+						return err
+					}
+				}
+				return nil
+			})
 		}
 	}
 
-	eg, egCtx := errgroup.WithContext(ctx)
-	for i := 0; i < len(pairs); i += 2 {
-		rangeBegin := pairs[i]
-		rangeEnd := pairs[i+1]
+	executorNodes := p.executors.GetMap()
+	executorNodesStr := make(map[string]string)
+	for k, v := range executorNodes {
+		executorNodesStr[k.String()] = v
+	}
 
-		// TODO: Move off to worker routines.
+	for serverUUID, channelUUIDs := range groups {
+		serverID := serverUUID.String()
+		channelIDs := make([]string, len(channelUUIDs))
+		for i, channelUUID := range channelUUIDs {
+			channelIDs[i] = channelUUID.String()
+		}
 		eg.Go(func() error {
-			address := replicators[rand.Int()%len(replicators)]
-			url := fmt.Sprintf("https://%s", address)
-			rc := pb.NewReplicationServiceProtobufClient(url, p.quicClient)
-			rq := pb.ReplicateRequest{
+			targetExecutor := ""
+			address := ""
+			// Somewhat stable rendezvous mapping.
+			for executorNodeID, v := range executorNodesStr {
+				if executorNodeID > serverID {
+					targetExecutor = executorNodeID
+					address = v
+				}
+			}
+
+			if targetExecutor == "" || address == "" {
+				log.Fatal("bad state")
+			}
+
+			conn, err := p.grpcClients.Connect(address)
+			if err != nil {
+				return err
+			}
+
+			pub := &pb.ExecuteRequest{
+				ChannelIds: channelIDs,
 				Id:         req.Id,
 				Message:    req.Message,
 				Reliable:   req.Reliable,
 				TopicId:    req.TopicId,
 				Ts:         req.Ts,
-				RangeBegin: rangeBegin.String(),
-				RangeEnd:   rangeEnd.String(),
-				RangeWidth: int32(rangeWidth),
 			}
-			_, err = rc.Replicate(egCtx, &rq)
-			if err != nil && req.Reliable == false {
-				// TODO: Handle non-critical error
-				log.Print(err)
-				return nil
-			} else if err != nil {
+
+			service := pb.NewExecuteServiceClient(conn)
+			timeoutCtx, cancelFunc := context.WithTimeout(ctx, 10*time.Second)
+			defer cancelFunc()
+			_, err = service.Execute(timeoutCtx, pub)
+			if err != nil {
 				return err
 			}
+
 			return nil
 		})
 	}
@@ -194,96 +200,5 @@ func (p *Provider) replicateDown(ctx context.Context,
 		return nil, err
 	}
 
-	return &pb.ReplicateResponse{}, nil
-}
-
-func (p *Provider) forwardMessage(ctx context.Context, channelID uuid.UUID,
-	req *pb.ReplicateRequest) (errOut error) {
-	reliable := req.Reliable
-	if reliable == false {
-		defer func() {
-			if errOut != nil {
-				log.Println("dropping unreliable message: ", errOut)
-			}
-			// Snuff errors for unreliable messages.
-			errOut = nil
-		}()
-	}
-
-	// TODO: configure
-	ctx, cancelFunc := context.WithTimeout(ctx, 5*time.Second)
-	defer cancelFunc()
-
-	noChannel := false
-	serverID, err := p.channelClient.GetChannelServerID(ctx, channelID)
-	if err == channel.ErrChannelNotFound {
-		noChannel = true
-	} else if err != nil {
-		return err
-	}
-
-	if noChannel && reliable == false {
-		log.Println("dropping unreliable message: no channel")
-		return nil
-	}
-
-	if req.Reliable {
-		defer func() {
-			if errOut == nil {
-				return
-			}
-
-			channelMessage := pb.ChannelMessage{
-				Id:      req.Id,
-				Message: req.Message,
-				TopicId: req.TopicId,
-				Ts:      req.Ts,
-			}
-
-			payload, err := proto.Marshal(&channelMessage)
-			if err != nil {
-				errOut = multierror.Append(errOut, err)
-				return
-			}
-
-			_, err = p.topicController.PushMessage(ctx, channelID, payload)
-			if err == topic.ErrQueueNotFound {
-				log.Println("dropping reliable message: no queue")
-				// Either the queue has expired or the channel is unreliable.
-			} else if err != nil {
-				errOut = multierror.Append(errOut, err)
-				return
-			}
-
-			// Error was handled by pushing to the queue, if it exists.
-			errOut = nil
-		}()
-	}
-
-	rq := pb.InternalPublishRequest{
-		ChannelId: channelID.String(),
-		Id:        req.Id,
-		Message:   req.Message,
-		Reliable:  req.Reliable,
-		TopicId:   req.TopicId,
-		Ts:        req.Ts,
-	}
-
-	subscriberNodes := p.subscriberLayer.GetMap()
-	address, ok := subscriberNodes[serverID]
-	if ok == false {
-		return ErrNodeNotFound
-	}
-
-	url := fmt.Sprintf("https://%s", address)
-	rc := pb.NewSubscribeInternalServiceProtobufClient(url, p.quicClient)
-
-	timeoutCtx, cancelFunc := context.WithTimeout(ctx, 5*time.Second)
-	defer cancelFunc()
-	_, err = rc.InternalPublish(timeoutCtx, &rq)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return &pb.PlanResponse{}, nil
 }

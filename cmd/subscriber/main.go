@@ -5,12 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"time"
-
-	"github.com/hpidcock/pub2sub/pkg/kcphttp"
 
 	etcd_clientv3 "github.com/coreos/etcd/clientv3"
 	"github.com/go-redis/redis"
@@ -20,9 +17,11 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/hpidcock/pub2sub/pkg/channel"
+	"github.com/hpidcock/pub2sub/pkg/clientcache"
 	"github.com/hpidcock/pub2sub/pkg/discovery"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
 	"github.com/hpidcock/pub2sub/pkg/topic"
+	"github.com/hpidcock/pub2sub/pkg/udpchannel"
 )
 
 type Provider struct {
@@ -30,16 +29,18 @@ type Provider struct {
 	serverID uuid.UUID
 
 	redisClient *redis.Client
-	etcdClient  *etcd_clientv3.Client
-	quicClient  *http.Client
 
+	etcdClient  *etcd_clientv3.Client
+	grpcClients *clientcache.ClientCache
 	disc        *discovery.DiscoveryClient
 	subscribers *discovery.DiscoveryMap
 
-	router *router.Router
-
 	topicController *topic.Controller
 	channelClient   *channel.ChannelClient
+
+	router    *router.Router
+	udpServer *udpchannel.Server
+	udpClient *udpchannel.Client
 }
 
 func (p *Provider) runGRPCServer(ctx context.Context) error {
@@ -64,43 +65,6 @@ func (p *Provider) runGRPCServer(ctx context.Context) error {
 	}()
 
 	log.Printf("serving gRPC endpoints on %s", endpoint)
-	err = server.Serve(listener)
-	defer close(closeChan)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (p *Provider) runQUICServer(ctx context.Context) error {
-	endpoint := fmt.Sprintf(":%d", p.config.Port)
-
-	handler := http.NewServeMux()
-	handler.Handle(pb.SubscribeInternalServicePathPrefix,
-		pb.NewSubscribeInternalServiceServer(p, nil))
-
-	server := http.Server{
-		Handler: handler,
-	}
-
-	listener, err := kcphttp.Listen(endpoint)
-	if err != nil {
-		return err
-	}
-
-	closeChan := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			server.Close()
-		case <-closeChan:
-			return
-		}
-	}()
-
-	//log.Printf("serving twirp/QUIC endpoints on %s", endpoint)
-	//err := server.ListenAndServeTLS("server.crt", "server.key")
 	err = server.Serve(listener)
 	defer close(closeChan)
 	if err != nil {
@@ -138,6 +102,18 @@ func (p *Provider) init() error {
 	})
 
 	p.router = router.NewRouter()
+
+	p.udpServer, err = udpchannel.NewServer(fmt.Sprintf(":%d", p.config.Port), func(data []byte) {
+		p.HandleUDPChannel(data)
+	})
+	if err != nil {
+		return err
+	}
+
+	p.udpClient, err = udpchannel.NewClient()
+	if err != nil {
+		return err
+	}
 
 	p.topicController, err = topic.NewController(p.redisClient)
 	if err != nil {
@@ -197,14 +173,6 @@ func run(ctx context.Context) error {
 
 	provider := &Provider{
 		serverID: uuid.New(),
-		quicClient: &http.Client{
-			/*Transport: &h2quic.RoundTripper{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},*/
-			Transport: kcphttp.DefaultTransport,
-		},
 	}
 	provider.config, err = NewConfig()
 	if err != nil {
@@ -220,9 +188,6 @@ func run(ctx context.Context) error {
 	eg, egCtx := errgroup.WithContext(ctx)
 	eg.Go(func() error {
 		return provider.runGRPCServer(egCtx)
-	})
-	eg.Go(func() error {
-		return provider.runQUICServer(egCtx)
 	})
 	eg.Go(func() error {
 		return provider.runDiscoveryBroadcast(egCtx)

@@ -33,7 +33,7 @@ type Provider struct {
 	topicController *topic.Controller
 	channelClient   *channel.ChannelClient
 	disc            *discovery.DiscoveryClient
-	subscribers     *discovery.DiscoveryMap
+	planners        *discovery.DiscoveryList
 }
 
 func (p *Provider) runGRPCServer(ctx context.Context) error {
@@ -44,7 +44,7 @@ func (p *Provider) runGRPCServer(ctx context.Context) error {
 	}
 
 	server := grpc.NewServer()
-	pb.RegisterExecuteServiceServer(server, p)
+	pb.RegisterDistributeServiceServer(server, p)
 
 	closeChan := make(chan struct{})
 	go func() {
@@ -72,16 +72,15 @@ func (p *Provider) runDiscoveryBroadcast(ctx context.Context) error {
 		return err
 	}
 
-	serviceName := "executors"
-
+	serviceName := "distributors"
 	endpoint := fmt.Sprintf("%s:%d", hostname, p.config.Port)
 	log.Printf("etcd: broadcasting %s %s at %s", serviceName, p.serverID, endpoint)
 	return p.disc.Broadcast(ctx, serviceName, p.serverID, endpoint)
 }
 
 func (p *Provider) runLayerDiscovery(ctx context.Context) error {
-	log.Printf("etcd: discovering subscribers")
-	return p.subscribers.Watch(ctx, "subscribers")
+	log.Printf("etcd: discovering planners")
+	return p.planners.Watch(ctx, "planners")
 }
 
 func (p *Provider) init() error {
@@ -112,13 +111,12 @@ func (p *Provider) init() error {
 		return err
 	}
 
-	p.subscribers, err = discovery.NewDiscoveryMap(p.disc)
+	p.planners, err = discovery.NewDiscoveryList(p.disc)
 	if err != nil {
 		return err
 	}
 
-	p.channelClient, err = channel.NewChannelClient(p.etcdClient,
-		p.redisClient, p.serverID)
+	p.channelClient, err = channel.NewChannelClient(p.etcdClient, p.redisClient, p.serverID)
 	if err != nil {
 		return err
 	}

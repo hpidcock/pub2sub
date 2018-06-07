@@ -125,11 +125,11 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 
 	handleMessage := func(msg router.Message) error {
 		switch obj := msg.Obj.(type) {
-		case *pb.InternalEvictRequest:
+		case *pb.InternalEvictMessage:
 			// This will be posted to in the defered close method.
 			onReleasedChan = msg.Result
 			return context.Canceled
-		case *pb.InternalAckRequest:
+		case *pb.InternalAckMessage:
 			if acks == nil {
 				return nil
 			}
@@ -142,7 +142,7 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 			switch ackMsg := ack.(type) {
 			case *router.Message:
 				ackMsg.Result <- nil
-				msg.Result <- nil // FIXME: Chan closed crash
+				msg.Result <- nil
 			case string:
 				// TODO: batch deletion
 				msg.Result <- p.topicController.DeleteMessage(ctx, channelID, ackMsg)
@@ -150,7 +150,7 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 				msg.Result <- ErrUnknownType
 			}
 			return nil
-		case *pb.InternalPublishRequest:
+		case *pb.InternalPublishMessage:
 			if reliable && obj.Reliable {
 				ackID := acks.Push(&msg)
 				err = call.Send(&pb.StreamResponse{
