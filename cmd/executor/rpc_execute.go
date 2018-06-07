@@ -60,9 +60,6 @@ func (p *Provider) Execute(ctx context.Context,
 					continue
 				}
 
-				log.Print(errOut)
-				log.Print("queing")
-
 				// TODO: Handle parallel inserts.
 				_, err = p.topicController.PushMessage(ctx, channelID, payload)
 				if err == topic.ErrQueueNotFound {
@@ -77,6 +74,8 @@ func (p *Provider) Execute(ctx context.Context,
 				errOut = newErr
 				return
 			}
+
+			log.Print(errOut)
 
 			// Error was handled by pushing to the queue, if it exists.
 			errOut = nil

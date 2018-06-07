@@ -136,7 +136,6 @@ func (p *Provider) Plan(ctx context.Context,
 				for i := n; i < numOffline; i += offlineWorkers {
 					channelID := offline[i]
 
-					log.Print("queing")
 					_, err := p.topicController.PushMessage(egCtx, channelID, payload)
 					if err == topic.ErrQueueNotFound {
 						log.Println("dropping reliable message: no queue")
