@@ -255,9 +255,12 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 		refreshChannel = ticker.C
 	}
 
+	// TODO: Auto-optimize based on number of connections
 	pullBackoff := backoff.NewExponentialBackOff()
-	pullBackoff.InitialInterval = 50 * time.Millisecond
+	pullBackoff.InitialInterval = 500 * time.Millisecond
 	pullBackoff.MaxInterval = 5 * time.Second
+	pullBackoff.Multiplier = 2
+	pullBackoff.RandomizationFactor = 0.25
 	pullBackoff.MaxElapsedTime = time.Duration(math.MaxInt64)
 	pullTimer := time.NewTimer(0)
 	defer pullTimer.Stop()

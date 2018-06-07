@@ -3,6 +3,9 @@ syntax = "proto3";
 package pub2sub;
 option go_package = "github.com/hpidcock/pub2sub/pkg/pub2subpb";
 
+/**************************************************
+* Publisher
+**************************************************/
 message PublishRequest {
     string id = 1;
     int64 ts = 2;
@@ -18,7 +21,10 @@ service PublishService {
     rpc Publish(PublishRequest) returns (PublishResponse);
 }
 
-message ReplicateRequest {
+/**************************************************
+* Planner
+**************************************************/
+message PlanRequest {
     string id = 1;
     int64 ts = 2;
     bytes message = 3;
@@ -30,13 +36,93 @@ message ReplicateRequest {
     int32 range_width = 8;
 }
 
-message ReplicateResponse {
+message PlanResponse {
 }
 
-service ReplicationService {
-    rpc Replicate(ReplicateRequest) returns (ReplicateResponse);
+service PlanService {
+    rpc Plan(PlanRequest) returns (PlanResponse);
 }
 
+/**************************************************
+* Executor
+**************************************************/
+message ExecuteRequest {
+    string id = 1;
+    int64 ts = 2;
+    bytes message = 3;
+    bool reliable = 4;
+    string topic_id = 5;
+
+    string server_id = 6;
+    repeated string channel_ids = 7;
+}
+
+message ExecuteResponse {
+}
+
+service ExecuteService {
+    rpc Execute(ExecuteRequest) returns (ExecuteResponse);
+}
+
+/**************************************************
+* Subscriber Internal
+**************************************************/
+message InternalPublishRequest {
+    repeated string channel_id = 1;
+    string id = 2;
+    int64 ts = 3;
+    bytes message = 4;
+    bool reliable = 5;
+    string topic_id = 6;
+}
+
+message InternalPublishResponse {
+    string channel_id = 1;
+    bool success = 2;
+}
+
+message InternalAckRequest {
+    string channel_id = 1;
+    int64 ack_id = 2;
+}
+
+message InternalAckResponse {
+}
+
+message InternalEvictRequest {
+    string channel_id = 1;
+}
+
+message InternalEvictResponse {
+}
+
+service SubscribeInternalService {
+    rpc InternalPublish(InternalPublishRequest) returns (stream InternalPublishResponse);
+    rpc InternalAck(InternalAckRequest) returns (InternalAckResponse);
+    rpc InternalEvict(InternalEvictRequest) returns (InternalEvictResponse);
+}
+
+message ChannelMessage {
+    string id = 1;
+    int64 ts = 2;
+    bytes message = 3;
+    string topic_id = 4;
+}
+
+enum UDPMessageType {
+    ACK = 0;
+    EVICT = 1;
+}
+
+message UDPUnreliableMessage {
+    UDPMessageType type = 1;
+    string channel_id = 2;
+    int64 ack_id = 3;
+}
+
+/**************************************************
+* Subscriber
+**************************************************/
 message StreamRequest {
     string channel_id = 1;
 
@@ -90,44 +176,4 @@ service SubscribeService {
     rpc Stream(StreamRequest) returns (stream StreamResponse);
     rpc Ack(AckRequest) returns (AckResponse);
     rpc Lease(LeaseRequest) returns (LeaseResponse);
-}
-
-message InternalPublishRequest {
-    string channel_id = 1;
-    string id = 2;
-    int64 ts = 3;
-    bytes message = 4;
-    bool reliable = 5;
-    string topic_id = 6;
-}
-
-message InternalPublishResponse {
-}
-
-message InternalAckRequest {
-    string channel_id = 1;
-    int64 ack_id = 2;
-}
-
-message InternalAckResponse {
-}
-
-message InternalEvictRequest {
-    string channel_id = 1;
-}
-
-message InternalEvictResponse {
-}
-
-service SubscribeInternalService {
-    rpc InternalPublish(InternalPublishRequest) returns (InternalPublishResponse);
-    rpc InternalAck(InternalAckRequest) returns (InternalAckResponse);
-    rpc InternalEvict(InternalEvictRequest) returns (InternalEvictResponse);
-}
-
-message ChannelMessage {
-    string id = 1;
-    int64 ts = 2;
-    bytes message = 3;
-    string topic_id = 4;
 }

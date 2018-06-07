@@ -47,8 +47,8 @@
     "mvcc/mvccpb",
     "pkg/types"
   ]
-  revision = "932c3c01f9d67471d67ff82c38acca196847f039"
-  version = "v3.3.6"
+  revision = "56536de5511128d0c7997aa2b792a4de575da536"
+  version = "v3.3.7"
 
 [[projects]]
   name = "github.com/davecgh/go-spew"
@@ -145,7 +145,13 @@
   branch = "master"
   name = "github.com/hpidcock/go-pub-sub-channel"
   packages = ["."]
-  revision = "e1f7308d0ba79bee2e36e86640b8d8e0ebf8c97e"
+  revision = "8bfe8ab854e3c8540059c0287635fd07719b9f2f"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/koding/cache"
+  packages = ["."]
+  revision = "e8a81b0b3f20f895153311abde1062894b5912d6"
 
 [[projects]]
   branch = "master"
@@ -225,7 +231,7 @@
     "curve25519",
     "hkdf"
   ]
-  revision = "df8d4716b3472e4a531c33cedbe537dae921a1a9"
+  revision = "b47b1587369238182299fe4dad77d05b8b461e06"
 
 [[projects]]
   branch = "master"
@@ -251,7 +257,7 @@
   branch = "master"
   name = "golang.org/x/sys"
   packages = ["cpu"]
-  revision = "c11f84a56e43e20a78cee75a7c034031ecf57d1f"
+  revision = "9527bec2660bd847c050fda93a0f0c6dee0800bb"
 
 [[projects]]
   name = "golang.org/x/text"
@@ -309,8 +315,20 @@
     "tap",
     "transport"
   ]
-  revision = "41344da2231b913fa3d983840a57a6b1b7b631a1"
-  version = "v1.12.0"
+  revision = "22a49e732a507a11ac524e4ea5fd1a3e384b6fb8"
+  version = "v1.12.1"
+
+[[projects]]
+  branch = "v2"
+  name = "gopkg.in/mgo.v2"
+  packages = [
+    ".",
+    "bson",
+    "internal/json",
+    "internal/sasl",
+    "internal/scram"
+  ]
+  revision = "3f83fa5005286a7fe593b055f0d7771a7dce4655"
 
 [[projects]]
   name = "gopkg.in/yaml.v2"
@@ -321,6 +339,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "55ea10a9ffbcd23482bd6999fbf90352c08e443dccf4637cb17ba06df7934fe9"
+  inputs-digest = "afd5db6c539d50e27e7c1534d29d016192e4a2715f81eaeb328d5f341d74943f"
   solver-name = "gps-cdcl"
   solver-version = 1
