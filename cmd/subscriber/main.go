@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
@@ -11,11 +10,12 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/hpidcock/pub2sub/pkg/kcphttp"
+
 	etcd_clientv3 "github.com/coreos/etcd/clientv3"
 	"github.com/go-redis/redis"
 	"github.com/google/uuid"
 	"github.com/hpidcock/go-pub-sub-channel"
-	"github.com/lucas-clemente/quic-go/h2quic"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
@@ -80,11 +80,13 @@ func (p *Provider) runQUICServer(ctx context.Context) error {
 	handler.Handle(pb.SubscribeInternalServicePathPrefix,
 		pb.NewSubscribeInternalServiceServer(p, nil))
 
-	server := h2quic.Server{
-		Server: &http.Server{
-			Addr:    endpoint,
-			Handler: handler,
-		},
+	server := http.Server{
+		Handler: handler,
+	}
+
+	listener, err := kcphttp.Listen(endpoint)
+	if err != nil {
+		return err
 	}
 
 	closeChan := make(chan struct{})
@@ -97,8 +99,9 @@ func (p *Provider) runQUICServer(ctx context.Context) error {
 		}
 	}()
 
-	log.Printf("serving twirp/QUIC endpoints on %s", endpoint)
-	err := server.ListenAndServeTLS("server.crt", "server.key")
+	//log.Printf("serving twirp/QUIC endpoints on %s", endpoint)
+	//err := server.ListenAndServeTLS("server.crt", "server.key")
+	err = server.Serve(listener)
 	defer close(closeChan)
 	if err != nil {
 		return err
@@ -161,7 +164,8 @@ func (p *Provider) init() error {
 		return err
 	}
 
-	p.channelClient, err = channel.NewChannelClient(p.etcdClient, p.serverID)
+	p.channelClient, err = channel.NewChannelClient(p.etcdClient,
+		p.redisClient, p.serverID)
 	if err != nil {
 		return err
 	}
@@ -194,11 +198,12 @@ func run(ctx context.Context) error {
 	provider := &Provider{
 		serverID: uuid.New(),
 		quicClient: &http.Client{
-			Transport: &h2quic.RoundTripper{
+			/*Transport: &h2quic.RoundTripper{
 				TLSClientConfig: &tls.Config{
 					InsecureSkipVerify: true,
 				},
-			},
+			},*/
+			Transport: kcphttp.DefaultTransport,
 		},
 	}
 	provider.config, err = NewConfig()

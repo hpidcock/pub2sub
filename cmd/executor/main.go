@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/hpidcock/pub2sub/pkg/channel"
 	"github.com/hpidcock/pub2sub/pkg/discovery"
+	"github.com/hpidcock/pub2sub/pkg/kcphttp"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
 	"github.com/hpidcock/pub2sub/pkg/topic"
 )
@@ -162,7 +162,8 @@ func (p *Provider) init() error {
 		}
 	}
 
-	p.channelClient, err = channel.NewChannelClient(p.etcdClient, p.serverID)
+	p.channelClient, err = channel.NewChannelClient(p.etcdClient,
+		p.redisClient, p.serverID)
 	if err != nil {
 		return err
 	}
@@ -195,11 +196,12 @@ func run(ctx context.Context) error {
 	provider := &Provider{
 		serverID: uuid.New(),
 		quicClient: &http.Client{
-			Transport: &h2quic.RoundTripper{
+			/*Transport: &h2quic.RoundTripper{
 				TLSClientConfig: &tls.Config{
 					InsecureSkipVerify: true,
 				},
-			},
+			},*/
+			Transport: kcphttp.DefaultTransport,
 		},
 	}
 	provider.config, err = NewConfig()
