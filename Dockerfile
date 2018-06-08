@@ -11,7 +11,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo github.com/hpidcock/
 
 FROM alpine
 RUN apk add --no-cache ca-certificates
-WORKDIR /root/
+WORKDIR /usr/local/bin
 COPY --from=build /go/src/github.com/hpidcock/pub2sub/publisher publisher
 COPY --from=build /go/src/github.com/hpidcock/pub2sub/distributor distributor
 COPY --from=build /go/src/github.com/hpidcock/pub2sub/planner planner
