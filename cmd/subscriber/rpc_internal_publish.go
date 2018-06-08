@@ -1,10 +1,8 @@
 package main
 
 import (
-	"context"
 	"log"
 	"sync"
-	"time"
 
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
 )
@@ -12,15 +10,14 @@ import (
 func (p *Provider) InternalPublish(req *pb.InternalPublishRequest,
 	call pb.SubscribeInternalService_InternalPublishServer) error {
 	ctx := call.Context()
-	timeoutCtx, cancelFunc := context.WithTimeout(ctx, 5*time.Second)
-	defer cancelFunc()
-
 	reliable := req.Message.GetReliable()
 
 	wg := sync.WaitGroup{}
+	sendMutex := sync.Mutex{}
+
 	process := func(channelID string) {
 		defer wg.Done()
-		err := p.router.Publish(timeoutCtx, channelID, req.Message)
+		err := p.router.Publish(ctx, channelID, req.Message)
 		if reliable == false {
 			return
 		}
@@ -31,10 +28,12 @@ func (p *Provider) InternalPublish(req *pb.InternalPublishRequest,
 		}
 
 		// Ignore errors if they are unreliable messages.
+		sendMutex.Lock()
 		err = call.Send(&pb.InternalPublishResponse{
 			ChannelId: channelID,
 			Success:   err == nil,
 		})
+		sendMutex.Unlock()
 
 		if err != nil {
 			log.Print(err)

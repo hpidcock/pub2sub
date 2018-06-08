@@ -77,26 +77,28 @@ func (p *Provider) Distribute(ctx context.Context,
 		return nil, ErrNoNodes
 	}
 
-	minToDivide := 100 // TODO: Configure
+	minToDivide := 500 // TODO: Configure
 	rangeWidth := int(req.RangeWidth)
 
 	pairs := []uuid.UUID{begin, end}
 	partitions := 1
 	for rangeWidth > minToDivide {
-		if partitions*2 > len(replicators) {
+		/*if partitions*2 > len(replicators) {
 			break
-		}
+		}*/
 		rangeWidth = rangeWidth / 2
 		partitions = partitions * 2
 
 		newPairs := make([]uuid.UUID, len(pairs)*2)
 		for i := 0; i < len(pairs); i += 2 {
 			var ok bool
-			newPairs[i*2], newPairs[i*2+1], ok = partitionUUID(pairs[i], pairs[i+1])
+			newPairs[i*2], newPairs[i*2+3] = pairs[i], pairs[i+1]
+			newPairs[i*2+1], newPairs[i*2+2], ok = partitionUUID(pairs[i], pairs[i+1])
 			if ok == false {
 				return nil, ErrRangesAreEqual
 			}
 		}
+		pairs = newPairs
 	}
 
 	eg, egCtx := errgroup.WithContext(ctx)

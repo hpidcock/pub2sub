@@ -22,29 +22,30 @@ func main() {
 
 	topicID := uuid.Must(uuid.Parse(topicIDString))
 
+	subConnection, err := grpc.Dial("localhost:5005", grpc.WithInsecure())
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	defer cancelFunc()
 
 	eg, egCtx := errgroup.WithContext(ctx)
 	for i := 0; i < consumers; i++ {
 		eg.Go(func() error {
-			return consumer(egCtx, topicID)
+			return consumer(egCtx, subConnection, topicID)
 		})
 	}
 
-	err := eg.Wait()
+	err = eg.Wait()
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func consumer(ctx context.Context, topicID uuid.UUID) error {
+func consumer(ctx context.Context, subConnection *grpc.ClientConn, topicID uuid.UUID) error {
 	channelID := uuid.New()
 
-	subConnection, err := grpc.Dial("localhost:5005", grpc.WithInsecure())
-	if err != nil {
-		log.Fatal(err)
-	}
 	sub := pb.NewSubscribeServiceClient(subConnection)
 
 	log.Print("stream")

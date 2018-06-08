@@ -60,6 +60,7 @@ func (p *Provider) Publish(ctx context.Context,
 			Ts:         req.Ts,
 			RangeWidth: int32(width),
 		}
+
 		_, err = service.Distribute(ctx, &rq)
 		if err != nil && req.Reliable == false {
 			log.Print(err)

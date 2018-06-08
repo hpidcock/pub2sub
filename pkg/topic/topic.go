@@ -239,6 +239,7 @@ func (m *Controller) ReadMessages(ctx context.Context,
 		lastMessageID = "0-0"
 	}
 
+	// TODO: Batch reads on slotid
 	res, err := m.redisClient.XReadN(int64(limit),
 		id, lastMessageID).Result()
 	if err == redis.Nil {

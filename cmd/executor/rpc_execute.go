@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"log"
-	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"google.golang.org/grpc/codes"
@@ -120,9 +119,7 @@ func (p *Provider) Execute(ctx context.Context,
 	}
 
 	service := pb.NewSubscribeInternalServiceClient(conn)
-	timeoutCtx, cancelFunc := context.WithTimeout(ctx, 5*time.Second)
-	defer cancelFunc()
-	call, err := service.InternalPublish(timeoutCtx, pub)
+	call, err := service.InternalPublish(ctx, pub)
 	if err != nil {
 		return nil, err
 	}

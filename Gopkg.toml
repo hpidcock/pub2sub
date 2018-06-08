@@ -24,6 +24,10 @@
 #   go-tests = true
 #   unused-packages = true
 
+[[constraint]]
+  name = "github.com/cenkalti/backoff"
+  branch = "master"
+  source = "github.com/hpidcock/backoff"
 
 [[constraint]]
   name = "github.com/coreos/etcd"
@@ -33,10 +37,6 @@
   name = "github.com/go-redis/redis"
   source = "github.com/kassiansun/redis.git"
   branch = "master"
-
-[[constraint]]
-  name = "github.com/golang/protobuf"
-  version = "1.1.0"
 
 [[constraint]]
   name = "github.com/google/uuid"

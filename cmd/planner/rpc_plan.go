@@ -191,7 +191,7 @@ func (p *Provider) Plan(ctx context.Context,
 			}
 
 			service := pb.NewExecuteServiceClient(conn)
-			timeoutCtx, cancelFunc := context.WithTimeout(ctx, 10*time.Second)
+			timeoutCtx, cancelFunc := context.WithTimeout(ctx, 60*time.Second)
 			defer cancelFunc()
 			_, err = service.Execute(timeoutCtx, pub)
 			if err != nil {
