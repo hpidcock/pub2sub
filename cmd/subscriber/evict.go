@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 
+	"github.com/hpidcock/go-pub-sub-channel"
+
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/uuid"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
@@ -19,7 +21,8 @@ func (p *Provider) evict(ctx context.Context,
 		err = p.router.Publish(ctx, channelIDString, &pb.InternalEvictMessage{
 			ChannelId: channelIDString,
 		})
-		if err != nil {
+		if err == router.ErrNotDelivered {
+		} else if err != nil {
 			return err
 		}
 		return nil
