@@ -28,7 +28,7 @@ type Provider struct {
 	config   Config
 	serverID uuid.UUID
 
-	redisClient *redis.Client
+	redisClient redis.UniversalClient
 
 	etcdClient  *etcd_clientv3.Client
 	grpcClients *clientcache.ClientCache
@@ -97,9 +97,15 @@ func (p *Provider) runChannelLease(ctx context.Context) error {
 
 func (p *Provider) init() error {
 	var err error
-	p.redisClient = redis.NewClient(&redis.Options{
-		Addr: p.config.RedisAddress,
-	})
+	if p.config.RedisCluster {
+		p.redisClient = redis.NewClusterClient(&redis.ClusterOptions{
+			Addrs: []string{p.config.RedisAddress},
+		})
+	} else {
+		p.redisClient = redis.NewClient(&redis.Options{
+			Addr: p.config.RedisAddress,
+		})
+	}
 
 	p.router = router.NewRouter()
 
