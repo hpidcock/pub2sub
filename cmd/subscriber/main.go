@@ -22,6 +22,7 @@ import (
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
 	"github.com/hpidcock/pub2sub/pkg/topic"
 	"github.com/hpidcock/pub2sub/pkg/udpchannel"
+	"github.com/hpidcock/pub2sub/pkg/workerpool"
 )
 
 type Provider struct {
@@ -41,6 +42,8 @@ type Provider struct {
 	router    *router.Router
 	udpServer *udpchannel.Server
 	udpClient *udpchannel.Client
+
+	publishWorkerPool *workerpool.WorkerPool
 }
 
 func (p *Provider) runGRPCServer(ctx context.Context) error {
@@ -75,12 +78,7 @@ func (p *Provider) runGRPCServer(ctx context.Context) error {
 }
 
 func (p *Provider) runDiscoveryBroadcast(ctx context.Context) error {
-	hostname, err := os.Hostname()
-	if err != nil {
-		return err
-	}
-
-	endpoint := fmt.Sprintf("%s:%d", hostname, p.config.Port)
+	endpoint := fmt.Sprintf("%s:%d", p.config.AnnouceAddress, p.config.Port)
 	log.Printf("etcd: broadcasting %s %s at %s", "subscribers", p.serverID, endpoint)
 	return p.disc.Broadcast(ctx, "subscribers", p.serverID, endpoint)
 }
@@ -178,7 +176,8 @@ func run(ctx context.Context) error {
 	log.Print("starting pub2sub publisher")
 
 	provider := &Provider{
-		serverID: uuid.New(),
+		serverID:          uuid.New(),
+		publishWorkerPool: workerpool.New(ctx),
 	}
 	provider.config, err = NewConfig()
 	if err != nil {

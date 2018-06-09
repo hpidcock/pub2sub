@@ -8,9 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
+
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/uuid"
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -66,53 +67,18 @@ func (p *Provider) Plan(ctx context.Context,
 		return &pb.PlanResponse{}, nil
 	}
 
-	var wg sync.WaitGroup
-	var offlineMutex sync.Mutex
-	var offline []uuid.UUID
+	found, offline, err := p.channelClient.BatchGetChannelServerID(ctx, channelIDs)
+	if err != nil {
+		return nil, err
+	}
 
-	var groupsMutex sync.Mutex
 	groups := make(map[uuid.UUID][]uuid.UUID)
-
-	workers := numCPUs * 32
-	if numChannels < workers {
-		workers = numChannels
+	for channelID, serverID := range found {
+		group, _ := groups[serverID]
+		groups[serverID] = append(group, channelID)
 	}
 
-	wg.Add(workers)
-	for n := 0; n < workers; n++ {
-		go func(n int) {
-			defer wg.Done()
-			for i := n; i < numChannels; i += workers {
-				channelID := channelIDs[i]
-
-				noChannel := false
-				serverID, err := p.channelClient.GetChannelServerID(ctx, channelID)
-				if err != nil {
-					noChannel = true
-				}
-
-				if noChannel && reliable == false {
-					return
-				}
-
-				if noChannel {
-					offlineMutex.Lock()
-					offline = append(offline, channelID)
-					offlineMutex.Unlock()
-				} else {
-					groupsMutex.Lock()
-					group, _ := groups[serverID]
-					groups[serverID] = append(group, channelID)
-					groupsMutex.Unlock()
-				}
-			}
-		}(n)
-	}
-	wg.Wait()
-
-	eg, egCtx := errgroup.WithContext(ctx)
-	numOffline := len(offline)
-	if numOffline > 0 {
+	if reliable && len(offline) > 0 {
 		channelMessage := pb.ChannelMessage{
 			Id:      req.Id,
 			Message: req.Message,
@@ -125,28 +91,40 @@ func (p *Provider) Plan(ctx context.Context,
 			return nil, err
 		}
 
-		offlineWorkers := numCPUs * 32
-		if numOffline < offlineWorkers {
-			offlineWorkers = numOffline
-		}
+		wg := sync.WaitGroup{}
+		mut := sync.Mutex{}
+		var errOut error
 
-		for x := 0; x < offlineWorkers; x++ {
-			n := x
-			eg.Go(func() error {
-				for i := n; i < numOffline; i += offlineWorkers {
-					channelID := offline[i]
-
-					_, err := p.topicController.PushMessage(egCtx, channelID, payload)
-					if err == topic.ErrQueueNotFound {
-						log.Println("dropping reliable message: no queue")
-						// Either the queue has expired or the channel is unreliable.
-					} else if err != nil {
-						return err
-					}
+		for _, v := range offline {
+			channelID := v
+			wg.Add(1)
+			err = p.offlineQueueWorkerPool.Push(func() {
+				defer wg.Done()
+				_, err := p.topicController.PushMessage(ctx, channelID, payload)
+				if err == topic.ErrQueueNotFound {
+					// Either the queue has expired or the channel is unreliable.
+					log.Println("dropping reliable message: no queue")
+				} else if err != nil {
+					mut.Lock()
+					errOut = multierror.Append(errOut, err)
+					mut.Unlock()
 				}
-				return nil
 			})
+			if err != nil {
+				wg.Done()
+				return nil, err
+			}
 		}
+
+		wg.Wait()
+
+		if errOut != nil {
+			return nil, errOut
+		}
+	}
+
+	if len(groups) == 0 {
+		return &pb.PlanResponse{}, nil
 	}
 
 	executorNodesStr := make(map[string]string)
@@ -158,13 +136,20 @@ func (p *Provider) Plan(ctx context.Context,
 	}
 	sort.Strings(executors)
 
+	wg := sync.WaitGroup{}
+	mut := sync.Mutex{}
+	var errOut error
+
 	for serverUUID, channelUUIDs := range groups {
 		serverID := serverUUID.String()
 		channelIDs := make([]string, len(channelUUIDs))
 		for i, channelUUID := range channelUUIDs {
 			channelIDs[i] = channelUUID.String()
 		}
-		eg.Go(func() error {
+
+		wg.Add(1)
+		err = p.executorDispatchWorkerPool.Push(func() {
+			defer wg.Done()
 			targetExecutor := executors[0]
 			// Somewhat stable rendezvous mapping.
 			for _, executorID := range executors {
@@ -177,7 +162,9 @@ func (p *Provider) Plan(ctx context.Context,
 
 			conn, err := p.grpcClients.Connect(address)
 			if err != nil {
-				return err
+				mut.Lock()
+				errOut = multierror.Append(errOut, err)
+				mut.Unlock()
 			}
 
 			pub := &pb.ExecuteRequest{
@@ -195,16 +182,22 @@ func (p *Provider) Plan(ctx context.Context,
 			defer cancelFunc()
 			_, err = service.Execute(timeoutCtx, pub)
 			if err != nil {
-				return err
+				mut.Lock()
+				errOut = multierror.Append(errOut, err)
+				mut.Unlock()
 			}
-
-			return nil
 		})
+
+		if err != nil {
+			wg.Done()
+			return nil, err
+		}
 	}
 
-	err = eg.Wait()
-	if err != nil {
-		return nil, err
+	wg.Wait()
+
+	if errOut != nil {
+		return nil, errOut
 	}
 
 	return &pb.PlanResponse{}, nil

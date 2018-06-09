@@ -36,8 +36,10 @@ func (p *Provider) Execute(ctx context.Context,
 		}
 
 		defer func() {
-			if errOut == nil {
+			if errOut == nil && len(unhandled) == 0 {
 				return
+			} else if errOut != nil {
+				log.Print("execute error: ", errOut)
 			}
 
 			channelMessage := pb.ChannelMessage{
@@ -73,8 +75,6 @@ func (p *Provider) Execute(ctx context.Context,
 				errOut = newErr
 				return
 			}
-
-			log.Print(errOut)
 
 			// Error was handled by pushing to the queue, if it exists.
 			errOut = nil
@@ -139,7 +139,9 @@ func (p *Provider) Execute(ctx context.Context,
 			continue
 		}
 
-		unhandled[channelID] = false
+		if resMsg.Success {
+			delete(unhandled, channelID)
+		}
 	}
 
 	return &pb.ExecuteResponse{}, nil

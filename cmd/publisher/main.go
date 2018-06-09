@@ -9,6 +9,8 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/hpidcock/pub2sub/pkg/workerpool"
+
 	etcd_clientv3 "github.com/coreos/etcd/clientv3"
 	"github.com/go-redis/redis"
 	"github.com/google/uuid"
@@ -32,6 +34,8 @@ type Provider struct {
 	topicController *topic.Controller
 	disc            *discovery.DiscoveryClient
 	distributors    *discovery.DiscoveryList
+
+	publishWorkerPool *workerpool.WorkerPool
 }
 
 func (p *Provider) runGRPCServer(ctx context.Context) error {
@@ -65,12 +69,7 @@ func (p *Provider) runGRPCServer(ctx context.Context) error {
 }
 
 func (p *Provider) runDiscoveryBroadcast(ctx context.Context) error {
-	hostname, err := os.Hostname()
-	if err != nil {
-		return err
-	}
-
-	endpoint := fmt.Sprintf("%s:%d", hostname, p.config.Port)
+	endpoint := fmt.Sprintf("%s:%d", p.config.AnnouceAddress, p.config.Port)
 	log.Printf("etcd: broadcasting publisher %s at %s", p.serverID, endpoint)
 	return p.disc.Broadcast(ctx, "publisher", p.serverID, endpoint)
 }
@@ -145,7 +144,8 @@ func run(ctx context.Context) error {
 	log.Print("starting pub2sub publisher")
 
 	provider := &Provider{
-		serverID: uuid.New(),
+		serverID:          uuid.New(),
+		publishWorkerPool: workerpool.New(ctx),
 	}
 	provider.config, err = NewConfig()
 	if err != nil {

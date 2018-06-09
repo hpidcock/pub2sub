@@ -269,7 +269,7 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 	for {
 		select {
 		case <-ctx.Done():
-			return context.Canceled
+			return ctx.Err()
 		case msg := <-internalChannel:
 			err = handleMessage(msg)
 			if err != nil {

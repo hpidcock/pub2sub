@@ -67,14 +67,8 @@ func (p *Provider) runGRPCServer(ctx context.Context) error {
 }
 
 func (p *Provider) runDiscoveryBroadcast(ctx context.Context) error {
-	hostname, err := os.Hostname()
-	if err != nil {
-		return err
-	}
-
 	serviceName := "executors"
-
-	endpoint := fmt.Sprintf("%s:%d", hostname, p.config.Port)
+	endpoint := fmt.Sprintf("%s:%d", p.config.AnnouceAddress, p.config.Port)
 	log.Printf("etcd: broadcasting %s %s at %s", serviceName, p.serverID, endpoint)
 	return p.disc.Broadcast(ctx, serviceName, p.serverID, endpoint)
 }

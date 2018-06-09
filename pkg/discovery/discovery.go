@@ -67,7 +67,7 @@ func (dc *DiscoveryClient) Broadcast(ctx context.Context, serviceName string,
 	for {
 		select {
 		case <-ctx.Done():
-			return context.Canceled
+			return ctx.Err()
 		case keepAlive, ok := <-keepAliveChannel:
 			if ok == false {
 				return context.Canceled
@@ -114,7 +114,7 @@ func (dc *DiscoveryCollection) Watch(ctx context.Context, serviceName string) (e
 	for {
 		select {
 		case <-ctx.Done():
-			return context.Canceled
+			return ctx.Err()
 		case watch, ok := <-watchChan:
 			if ok == false || watch.Canceled {
 				return context.Canceled

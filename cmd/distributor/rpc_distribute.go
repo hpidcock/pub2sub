@@ -4,9 +4,11 @@ import (
 	"context"
 	"log"
 	"math/rand"
+	"sync"
+
+	"github.com/hashicorp/go-multierror"
 
 	"github.com/google/uuid"
-	"golang.org/x/sync/errgroup"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -101,41 +103,67 @@ func (p *Provider) Distribute(ctx context.Context,
 		pairs = newPairs
 	}
 
-	eg, egCtx := errgroup.WithContext(ctx)
-	for i := 0; i < len(pairs); i += 2 {
-		rangeBegin := pairs[i]
-		rangeEnd := pairs[i+1]
-
-		// TODO: Move off to worker routines.
-		eg.Go(func() error {
-			address := replicators[rand.Int()%len(replicators)]
-			conn, err := p.grpcClients.Connect(address)
-			service := pb.NewPlanServiceClient(conn)
-			rq := pb.PlanRequest{
-				Id:         req.Id,
-				Message:    req.Message,
-				Reliable:   req.Reliable,
-				TopicId:    req.TopicId,
-				Ts:         req.Ts,
-				RangeBegin: rangeBegin.String(),
-				RangeEnd:   rangeEnd.String(),
-				RangeWidth: int32(rangeWidth),
-			}
-			_, err = service.Plan(egCtx, &rq)
-			if err != nil && req.Reliable == false {
-				// TODO: Handle non-critical error
-				log.Print(err)
-				return nil
-			} else if err != nil {
-				return err
-			}
+	process := func(rangeBegin uuid.UUID, rangeEnd uuid.UUID) error {
+		address := replicators[rand.Int()%len(replicators)]
+		conn, err := p.grpcClients.Connect(address)
+		service := pb.NewPlanServiceClient(conn)
+		rq := pb.PlanRequest{
+			Id:         req.Id,
+			Message:    req.Message,
+			Reliable:   req.Reliable,
+			TopicId:    req.TopicId,
+			Ts:         req.Ts,
+			RangeBegin: rangeBegin.String(),
+			RangeEnd:   rangeEnd.String(),
+			RangeWidth: int32(rangeWidth),
+		}
+		_, err = service.Plan(ctx, &rq)
+		if err != nil && req.Reliable == false {
+			// TODO: Handle non-critical error
+			log.Print(err)
 			return nil
-		})
+		} else if err != nil {
+			return err
+		}
+		return nil
 	}
 
-	err = eg.Wait()
-	if err != nil {
-		return nil, err
+	if len(pairs) == 2 {
+		err = process(pairs[0], pairs[1])
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		wg := sync.WaitGroup{}
+		errMut := sync.Mutex{}
+		var errRes error
+
+		for i := 0; i < len(pairs); i += 2 {
+			rangeBegin := pairs[i]
+			rangeEnd := pairs[i+1]
+
+			// TODO: Move off to worker routines.
+			wg.Add(1)
+			err = p.plannerDispatchWorkerPool.Push(func() {
+				defer wg.Done()
+				err := process(rangeBegin, rangeEnd)
+				if err != nil {
+					errMut.Lock()
+					errRes = multierror.Append(errRes, err)
+					errMut.Unlock()
+				}
+			})
+			if err != nil {
+				wg.Done()
+				return nil, err
+			}
+		}
+
+		wg.Wait()
+
+		if errRes != nil {
+			return nil, errRes
+		}
 	}
 
 	return &pb.DistributeResponse{}, nil

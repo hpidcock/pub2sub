@@ -11,6 +11,7 @@ type Config struct {
 	RedisAddress           string        `default:"localhost:6379"`
 	RedisCluster           bool          `default:"false"`
 	EtcdAddress            string        `default:"localhost:2379"`
+	AnnouceAddress         string        `default:"localhost"`
 	MaxSubscribeDuration   time.Duration `default:"5m"`
 	QueueKeepAliveDuration time.Duration `default:"5m"`
 }

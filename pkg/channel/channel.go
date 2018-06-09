@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hpidcock/pub2sub/pkg/workerpool"
+
 	v3 "github.com/coreos/etcd/clientv3"
 	"github.com/go-redis/redis"
 	"github.com/google/uuid"
@@ -33,7 +35,8 @@ type ChannelClient struct {
 
 	serverID uuid.UUID
 
-	redisClient redis.UniversalClient
+	redisClient    redis.UniversalClient
+	etcdWorkerPool *workerpool.WorkerPool
 }
 
 // NewChannelClient returns a new client for acquiring channels and their allocated server.
@@ -41,15 +44,105 @@ func NewChannelClient(etcdClient *v3.Client,
 	redisClient redis.UniversalClient,
 	serverID uuid.UUID) (*ChannelClient, error) {
 	cc := &ChannelClient{
-		etcdClient:  etcdClient,
-		leaseClient: v3.NewLease(etcdClient),
-		kvClient:    v3.NewKV(etcdClient),
-		watchClient: v3.Watcher(etcdClient),
-		serverID:    serverID,
-		redisClient: redisClient,
+		etcdClient:     etcdClient,
+		leaseClient:    v3.NewLease(etcdClient),
+		kvClient:       v3.NewKV(etcdClient),
+		watchClient:    v3.Watcher(etcdClient),
+		serverID:       serverID,
+		redisClient:    redisClient,
+		etcdWorkerPool: workerpool.New(etcdClient.Ctx()),
 	}
 
 	return cc, nil
+}
+
+func (cc *ChannelClient) BatchGetChannelServerID(ctx context.Context,
+	channelIDs []uuid.UUID) (map[uuid.UUID]uuid.UUID, []uuid.UUID, error) {
+	cmds := make(map[uuid.UUID]*redis.StringCmd)
+	pipeline := cc.redisClient.Pipeline()
+	for _, channelID := range channelIDs {
+		channelIDString := channelID.String()
+		cmds[channelID] = pipeline.Get("cache_" + channelIDString)
+	}
+	pipeline.Exec()
+
+	wg := sync.WaitGroup{}
+	mut := sync.Mutex{}
+	found := make(map[uuid.UUID]uuid.UUID)
+	var notFound []uuid.UUID
+	var errOut error
+	var cachePipeline redis.Pipeliner
+
+	etcdProcess := func(channelID uuid.UUID) error {
+		channelIDString := channelID.String()
+		key := fmt.Sprintf("channel-%s", channelIDString)
+		res, err := cc.kvClient.Get(ctx, key, v3.WithSerializable())
+		if err != nil {
+			return err
+		}
+
+		if len(res.Kvs) == 0 {
+			mut.Lock()
+			notFound = append(notFound, channelID)
+			mut.Unlock()
+			return nil
+		}
+
+		serverIDString := string(res.Kvs[0].Value)
+		serverID, err := uuid.Parse(serverIDString)
+		if err != nil {
+			return err
+		}
+
+		mut.Lock()
+		found[channelID] = serverID
+		if cachePipeline == nil {
+			cachePipeline = cc.redisClient.Pipeline()
+		}
+		cachePipeline.Set("cache_"+channelIDString,
+			serverIDString, 2*time.Minute)
+		mut.Unlock()
+
+		return nil
+	}
+
+	for v, redisResult := range cmds {
+		channelID := v
+		serverIDString, err := redisResult.Result()
+		if err == redis.Nil {
+			wg.Add(1)
+			cc.etcdWorkerPool.Push(func() {
+				defer wg.Done()
+				err := etcdProcess(channelID)
+				if err != nil {
+					mut.Lock()
+					errOut = multierror.Append(errOut, err)
+					mut.Unlock()
+				}
+			})
+			continue
+		} else if err != nil {
+			// TODO: handle error gracefully.
+			return nil, nil, err
+		}
+
+		serverID, err := uuid.Parse(serverIDString)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		mut.Lock()
+		found[channelID] = serverID
+		mut.Unlock()
+	}
+
+	wg.Wait()
+
+	if cachePipeline != nil {
+		cachePipeline.Exec()
+	}
+
+	return found, notFound, nil
 }
 
 // GetChannelServerID returns the binded serverID or ErrChannelNotFound
@@ -212,7 +305,7 @@ func (cc *ChannelClient) Lease(ctx context.Context) (errOut error) {
 	for {
 		select {
 		case <-ctx.Done():
-			return context.Canceled
+			return ctx.Err()
 		case keepAlive, ok := <-keepAliveChannel:
 			if ok == false {
 				return context.Canceled
