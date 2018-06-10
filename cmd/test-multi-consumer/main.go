@@ -39,7 +39,7 @@ func main() {
 
 	err = eg.Wait()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("done: ", err)
 	}
 }
 
@@ -91,9 +91,10 @@ func consumer(ctx context.Context, subConnection *grpc.ClientConn, topicID uuid.
 				_, err = sub.Ack(context.Background(), &pb.AckRequest{
 					AckId:     evt.StreamMessageEvent.AckId,
 					ChannelId: channelID.String(),
+					ServerId:  evt.StreamMessageEvent.ServerId,
 				})
 				if err != nil {
-					log.Fatal(err)
+					log.Fatal("ack: ", err)
 				}
 			}
 		} else {

@@ -137,6 +137,7 @@ message UDPUnreliableMessage {
     UDPMessageType type = 1;
     string channel_id = 2;
     int64 ack_id = 3;
+    string server_id = 4;
 }
 
 /**************************************************
@@ -161,6 +162,7 @@ message StreamMessageEvent {
     bool reliable = 4;
     string topic_id = 5;
     int64 ack_id = 6;
+    string server_id = 7;
 }
 
 message StreamResponse {
@@ -173,6 +175,7 @@ message StreamResponse {
 message AckRequest {
     string channel_id = 1;
     int64 ack_id = 2;
+    string server_id = 3;
 }
 
 message AckResponse {

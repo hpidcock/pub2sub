@@ -73,6 +73,7 @@ func main() {
 				_, err = sub.Ack(context.Background(), &pb.AckRequest{
 					AckId:     evt.StreamMessageEvent.AckId,
 					ChannelId: channelID.String(),
+					ServerId:  evt.StreamMessageEvent.ServerId,
 				})
 				if err != nil {
 					log.Fatal(err)

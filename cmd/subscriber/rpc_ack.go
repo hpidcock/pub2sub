@@ -16,12 +16,12 @@ func (p *Provider) Ack(ctx context.Context,
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelFunc()
 
-	channelID, err := uuid.Parse(req.ChannelId)
+	_, err := uuid.Parse(req.ChannelId)
 	if err != nil {
 		return nil, err
 	}
 
-	serverID, err := p.channelClient.GetChannelServerID(ctx, channelID)
+	serverID, err := uuid.Parse(req.ServerId)
 	if err != nil {
 		return nil, err
 	}
@@ -48,6 +48,7 @@ func (p *Provider) Ack(ctx context.Context,
 		Type:      pb.UDPMessageType_ACK,
 		ChannelId: req.ChannelId,
 		AckId:     req.AckId,
+		ServerId:  req.ServerId,
 	}
 
 	data, err := proto.Marshal(msg)

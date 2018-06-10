@@ -111,7 +111,7 @@
   branch = "master"
   name = "github.com/hpidcock/go-pub-sub-channel"
   packages = ["."]
-  revision = "8bfe8ab854e3c8540059c0287635fd07719b9f2f"
+  revision = "0700c64a400381cabfc5a89da582e0773d1081c5"
 
 [[projects]]
   branch = "master"
@@ -130,12 +130,6 @@
   packages = ["."]
   revision = "645ef00459ed84a119197bfb8d8205042c6df63d"
   version = "v0.8.0"
-
-[[projects]]
-  name = "github.com/pkg/profile"
-  packages = ["."]
-  revision = "5b67d428864e92711fcbd2f8629456121a56d91f"
-  version = "v1.2.1"
 
 [[projects]]
   name = "github.com/pmezard/go-difflib"
@@ -255,6 +249,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "edce1fef749f318593f9845c9fd57518af71a0c63401086928f8b73728fcc18c"
+  inputs-digest = "0a88df74a2838c82e5cab7a067deb7a2d12e541598e5c28ca1e8b268a302e2c0"
   solver-name = "gps-cdcl"
   solver-version = 1
