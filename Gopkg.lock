@@ -58,14 +58,14 @@
     "internal/singleflight",
     "internal/util"
   ]
-  revision = "f98a49c68b0f0cb6dc9203e7cdeccd107d506aff"
+  revision = "36bbfaf4135b4cd822fb2e9e655d8cf70ae141f6"
   source = "github.com/kassiansun/redis.git"
 
 [[projects]]
   name = "github.com/gobuffalo/packr"
   packages = ["."]
-  revision = "7f4074995d431987caaa35088199f13c44b24440"
-  version = "v1.11.0"
+  revision = "bd47f2894846e32edcf9aa37290fef76c327883f"
+  version = "v1.11.1"
 
 [[projects]]
   name = "github.com/gogo/protobuf"
@@ -140,8 +140,8 @@
 [[projects]]
   name = "github.com/stretchr/testify"
   packages = ["assert"]
-  revision = "12b6f73e6084dad08a7c6e575284b177ecafbc71"
-  version = "v1.2.1"
+  revision = "f35b8ab0b5a2cef36673838d662e249dd9c94686"
+  version = "v1.2.2"
 
 [[projects]]
   name = "github.com/thoas/go-funk"
@@ -194,7 +194,7 @@
   branch = "master"
   name = "google.golang.org/genproto"
   packages = ["googleapis/rpc/status"]
-  revision = "81158efcc9f219c511e4d3c0d61a0e6e49c01a24"
+  revision = "32ee49c4dd805befd833990acba36cb75042378c"
 
 [[projects]]
   name = "google.golang.org/grpc"

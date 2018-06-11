@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/hpidcock/pub2sub/pkg/struuid"
 	"github.com/hpidcock/pub2sub/pkg/workerpool"
 
 	etcd_clientv3 "github.com/coreos/etcd/clientv3"
@@ -25,7 +26,7 @@ import (
 
 type Provider struct {
 	config   Config
-	serverID uuid.UUID
+	serverID struuid.UUID
 
 	redisClient redis.UniversalClient
 	etcdClient  *etcd_clientv3.Client
@@ -144,7 +145,7 @@ func run(ctx context.Context) error {
 	log.Print("starting pub2sub publisher")
 
 	provider := &Provider{
-		serverID:          uuid.New(),
+		serverID:          struuid.FromUUID(uuid.New()),
 		publishWorkerPool: workerpool.New(ctx),
 	}
 	provider.config, err = NewConfig()

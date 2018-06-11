@@ -10,9 +10,9 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/google/uuid"
 
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
+	"github.com/hpidcock/pub2sub/pkg/struuid"
 	"github.com/hpidcock/pub2sub/pkg/topic"
 )
 
@@ -23,13 +23,13 @@ var (
 func (p *Provider) Execute(ctx context.Context,
 	req *pb.ExecuteRequest) (res *pb.ExecuteResponse, errOut error) {
 	reliable := req.Reliable
-	var unhandled map[uuid.UUID]bool
+	var unhandled map[struuid.UUID]bool
 	if reliable {
-		unhandled = make(map[uuid.UUID]bool)
+		unhandled = make(map[struuid.UUID]bool)
 		for _, channelIDString := range req.ChannelIds {
-			channelID, err := uuid.Parse(channelIDString)
+			channelID, err := struuid.Parse(channelIDString)
 			if err != nil {
-				// TODO: Handle error
+				log.Print("parse error: ", err)
 				continue
 			}
 			unhandled[channelID] = true
@@ -91,7 +91,7 @@ func (p *Provider) Execute(ctx context.Context,
 		}()
 	}
 
-	serverID, err := uuid.Parse(req.ServerId)
+	serverID, err := struuid.Parse(req.ServerId)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +132,7 @@ func (p *Provider) Execute(ctx context.Context,
 			return nil, err
 		}
 
-		channelID, err := uuid.Parse(resMsg.ChannelId)
+		channelID, err := struuid.Parse(resMsg.ChannelId)
 		if err != nil {
 			// TODO: handle error, for now, it's as if it failed to send.
 			log.Print(err)

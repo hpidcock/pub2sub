@@ -11,11 +11,11 @@ import (
 	"github.com/hashicorp/go-multierror"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
+	"github.com/hpidcock/pub2sub/pkg/struuid"
 	"github.com/hpidcock/pub2sub/pkg/topic"
 )
 
@@ -37,17 +37,17 @@ func (p *Provider) Plan(ctx context.Context,
 	req *pb.PlanRequest) (*pb.PlanResponse, error) {
 	reliable := req.Reliable
 
-	topicID, err := uuid.Parse(req.TopicId)
+	topicID, err := struuid.Parse(req.TopicId)
 	if err != nil {
 		return nil, ErrBadTopicID
 	}
 
-	begin, err := uuid.Parse(req.RangeBegin)
+	begin, err := struuid.Parse(req.RangeBegin)
 	if err != nil {
 		return nil, ErrBadRangeBegin
 	}
 
-	end, err := uuid.Parse(req.RangeEnd)
+	end, err := struuid.Parse(req.RangeEnd)
 	if err != nil {
 		return nil, ErrBadRangeEnd
 	}
@@ -72,7 +72,7 @@ func (p *Provider) Plan(ctx context.Context,
 		return nil, err
 	}
 
-	groups := make(map[uuid.UUID][]uuid.UUID)
+	groups := make(map[struuid.UUID][]struuid.UUID)
 	for channelID, serverID := range found {
 		group, _ := groups[serverID]
 		groups[serverID] = append(group, channelID)

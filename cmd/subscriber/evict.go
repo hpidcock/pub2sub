@@ -6,14 +6,14 @@ import (
 	"github.com/hpidcock/go-pub-sub-channel"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/google/uuid"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
+	"github.com/hpidcock/pub2sub/pkg/struuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 func (p *Provider) evict(ctx context.Context,
-	serverID uuid.UUID, channelID uuid.UUID) error {
+	serverID struuid.UUID, channelID struuid.UUID) error {
 	var err error
 
 	channelIDString := channelID.String()

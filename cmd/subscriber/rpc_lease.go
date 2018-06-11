@@ -8,9 +8,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/google/uuid"
-
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
+	"github.com/hpidcock/pub2sub/pkg/struuid"
 )
 
 var (
@@ -23,12 +22,12 @@ func (p *Provider) Lease(ctx context.Context,
 	req *pb.LeaseRequest) (*pb.LeaseResponse, error) {
 	start := time.Now()
 
-	channelID, err := uuid.Parse(req.ChannelId)
+	channelID, err := struuid.Parse(req.ChannelId)
 	if err != nil {
 		return nil, ErrFailedToParseChannelID
 	}
 
-	topicID, err := uuid.Parse(req.TopicId)
+	topicID, err := struuid.Parse(req.TopicId)
 	if err != nil {
 		return nil, ErrFailedToParseTopicID
 	}

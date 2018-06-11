@@ -9,7 +9,6 @@ import (
 
 	"github.com/cenkalti/backoff"
 	"github.com/gogo/protobuf/proto"
-	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 	"github.com/hpidcock/go-pub-sub-channel"
 	"google.golang.org/grpc/codes"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/hpidcock/pub2sub/pkg/deadline_list"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
+	"github.com/hpidcock/pub2sub/pkg/struuid"
 	"github.com/hpidcock/pub2sub/pkg/topic"
 )
 
@@ -34,7 +34,7 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 	}()
 
 	log.Printf("new stream %s\n", req.ChannelId)
-	channelID, err := uuid.Parse(req.ChannelId)
+	channelID, err := struuid.Parse(req.ChannelId)
 	if err != nil {
 		return ErrBadChannelID
 	}
@@ -43,7 +43,7 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 	defer cancelFunc()
 
 	err = p.channelClient.AcquireChannel(ctx, channelID, func(ctx context.Context,
-		serverID uuid.UUID, channelID uuid.UUID) error {
+		serverID struuid.UUID, channelID struuid.UUID) error {
 		return p.evict(ctx, serverID, channelID)
 	})
 	if err != nil {

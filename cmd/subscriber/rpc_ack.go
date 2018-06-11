@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/google/uuid"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
+	"github.com/hpidcock/pub2sub/pkg/struuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -16,12 +16,12 @@ func (p *Provider) Ack(ctx context.Context,
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelFunc()
 
-	_, err := uuid.Parse(req.ChannelId)
+	channelID, err := struuid.Parse(req.ChannelId)
 	if err != nil {
 		return nil, err
 	}
 
-	serverID, err := uuid.Parse(req.ServerId)
+	serverID, err := struuid.Parse(req.ServerId)
 	if err != nil {
 		return nil, err
 	}
@@ -46,9 +46,9 @@ func (p *Provider) Ack(ctx context.Context,
 
 	msg := &pb.UDPUnreliableMessage{
 		Type:      pb.UDPMessageType_ACK,
-		ChannelId: req.ChannelId,
+		ChannelId: channelID.String(),
 		AckId:     req.AckId,
-		ServerId:  req.ServerId,
+		ServerId:  serverID.String(),
 	}
 
 	data, err := proto.Marshal(msg)

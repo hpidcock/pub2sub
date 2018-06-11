@@ -411,7 +411,7 @@ func newClusterState(
 		var nodes []*clusterNode
 		for i, slotNode := range slot.Nodes {
 			addr := slotNode.Addr
-			if !isLoopbackOrigin && isLoopbackAddr(addr) {
+			if !isLoopbackOrigin && useOriginAddr(origin, addr) {
 				addr = origin
 			}
 
@@ -1172,7 +1172,7 @@ func (c *ClusterClient) defaultProcessPipeline(cmds []Cmder) error {
 		failedCmds := make(map[*clusterNode][]Cmder)
 
 		for node, cmds := range cmdsMap {
-			cn, _, err := node.Client.getConn()
+			cn, err := node.Client.getConn()
 			if err != nil {
 				if err == pool.ErrClosed {
 					c.remapCmds(cmds, failedCmds)
@@ -1184,9 +1184,9 @@ func (c *ClusterClient) defaultProcessPipeline(cmds []Cmder) error {
 
 			err = c.pipelineProcessCmds(node, cn, cmds, failedCmds)
 			if err == nil || internal.IsRedisError(err) {
-				_ = node.Client.connPool.Put(cn)
+				node.Client.connPool.Put(cn)
 			} else {
-				_ = node.Client.connPool.Remove(cn)
+				node.Client.connPool.Remove(cn)
 			}
 		}
 
@@ -1207,15 +1207,32 @@ func (c *ClusterClient) mapCmdsByNode(cmds []Cmder) (map[*clusterNode][]Cmder, e
 	}
 
 	cmdsMap := make(map[*clusterNode][]Cmder)
+	cmdsAreReadOnly := c.cmdsAreReadOnly(cmds)
 	for _, cmd := range cmds {
-		slot := c.cmdSlot(cmd)
-		node, err := state.slotMasterNode(slot)
+		var node *clusterNode
+		var err error
+		if cmdsAreReadOnly {
+			_, node, err = c.cmdSlotAndNode(cmd)
+		} else {
+			slot := c.cmdSlot(cmd)
+			node, err = state.slotMasterNode(slot)
+		}
 		if err != nil {
 			return nil, err
 		}
 		cmdsMap[node] = append(cmdsMap[node], cmd)
 	}
 	return cmdsMap, nil
+}
+
+func (c *ClusterClient) cmdsAreReadOnly(cmds []Cmder) bool {
+	for _, cmd := range cmds {
+		cmdInfo := c.cmdInfo(cmd.Name())
+		if cmdInfo == nil || !cmdInfo.ReadOnly {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *ClusterClient) remapCmds(cmds []Cmder, failedCmds map[*clusterNode][]Cmder) {
@@ -1336,7 +1353,7 @@ func (c *ClusterClient) defaultProcessTxPipeline(cmds []Cmder) error {
 			failedCmds := make(map[*clusterNode][]Cmder)
 
 			for node, cmds := range cmdsMap {
-				cn, _, err := node.Client.getConn()
+				cn, err := node.Client.getConn()
 				if err != nil {
 					if err == pool.ErrClosed {
 						c.remapCmds(cmds, failedCmds)
@@ -1348,9 +1365,9 @@ func (c *ClusterClient) defaultProcessTxPipeline(cmds []Cmder) error {
 
 				err = c.txPipelineProcessCmds(node, cn, cmds, failedCmds)
 				if err == nil || internal.IsRedisError(err) {
-					_ = node.Client.connPool.Put(cn)
+					node.Client.connPool.Put(cn)
 				} else {
-					_ = node.Client.connPool.Remove(cn)
+					node.Client.connPool.Remove(cn)
 				}
 			}
 
@@ -1492,6 +1509,29 @@ func (c *ClusterClient) PSubscribe(channels ...string) *PubSub {
 		_ = pubsub.PSubscribe(channels...)
 	}
 	return pubsub
+}
+
+func useOriginAddr(originAddr, nodeAddr string) bool {
+	nodeHost, nodePort, err := net.SplitHostPort(nodeAddr)
+	if err != nil {
+		return false
+	}
+
+	nodeIP := net.ParseIP(nodeHost)
+	if nodeIP == nil {
+		return false
+	}
+
+	if !nodeIP.IsLoopback() {
+		return false
+	}
+
+	_, originPort, err := net.SplitHostPort(originAddr)
+	if err != nil {
+		return false
+	}
+
+	return nodePort == originPort
 }
 
 func isLoopbackAddr(addr string) bool {

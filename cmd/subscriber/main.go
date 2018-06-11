@@ -20,6 +20,7 @@ import (
 	"github.com/hpidcock/pub2sub/pkg/clientcache"
 	"github.com/hpidcock/pub2sub/pkg/discovery"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
+	"github.com/hpidcock/pub2sub/pkg/struuid"
 	"github.com/hpidcock/pub2sub/pkg/topic"
 	"github.com/hpidcock/pub2sub/pkg/udpchannel"
 	"github.com/hpidcock/pub2sub/pkg/workerpool"
@@ -27,7 +28,7 @@ import (
 
 type Provider struct {
 	config   Config
-	serverID uuid.UUID
+	serverID struuid.UUID
 
 	redisClient redis.UniversalClient
 
@@ -173,10 +174,10 @@ func run(ctx context.Context) error {
 
 	var err error
 	log.SetFlags(log.Lshortfile | log.LstdFlags)
-	log.Print("starting pub2sub publisher")
+	log.Print("starting pub2sub subscriber")
 
 	provider := &Provider{
-		serverID:          uuid.New(),
+		serverID:          struuid.FromUUID(uuid.New()),
 		publishWorkerPool: workerpool.New(ctx),
 	}
 	provider.config, err = NewConfig()

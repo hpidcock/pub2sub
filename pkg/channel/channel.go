@@ -7,11 +7,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hpidcock/pub2sub/pkg/struuid"
 	"github.com/hpidcock/pub2sub/pkg/workerpool"
 
 	v3 "github.com/coreos/etcd/clientv3"
 	"github.com/go-redis/redis"
-	"github.com/google/uuid"
 	multierror "github.com/hashicorp/go-multierror"
 )
 
@@ -22,7 +22,7 @@ var (
 	ErrFailedRelease   = errors.New("channel failed to release")
 )
 
-type RequestRelease func(ctx context.Context, serverID uuid.UUID, channelID uuid.UUID) error
+type RequestRelease func(ctx context.Context, serverID struuid.UUID, channelID struuid.UUID) error
 
 type ChannelClient struct {
 	etcdClient  *v3.Client
@@ -33,7 +33,7 @@ type ChannelClient struct {
 	leaseID     v3.LeaseID
 	leaseIDLock sync.RWMutex
 
-	serverID uuid.UUID
+	serverID struuid.UUID
 
 	redisClient    redis.UniversalClient
 	etcdWorkerPool *workerpool.WorkerPool
@@ -42,7 +42,7 @@ type ChannelClient struct {
 // NewChannelClient returns a new client for acquiring channels and their allocated server.
 func NewChannelClient(etcdClient *v3.Client,
 	redisClient redis.UniversalClient,
-	serverID uuid.UUID) (*ChannelClient, error) {
+	serverID struuid.UUID) (*ChannelClient, error) {
 	cc := &ChannelClient{
 		etcdClient:     etcdClient,
 		leaseClient:    v3.NewLease(etcdClient),
@@ -57,8 +57,8 @@ func NewChannelClient(etcdClient *v3.Client,
 }
 
 func (cc *ChannelClient) BatchGetChannelServerID(ctx context.Context,
-	channelIDs []uuid.UUID) (map[uuid.UUID]uuid.UUID, []uuid.UUID, error) {
-	cmds := make(map[uuid.UUID]*redis.StringCmd)
+	channelIDs []struuid.UUID) (map[struuid.UUID]struuid.UUID, []struuid.UUID, error) {
+	cmds := make(map[struuid.UUID]*redis.StringCmd)
 	pipeline := cc.redisClient.Pipeline()
 	for _, channelID := range channelIDs {
 		channelIDString := channelID.String()
@@ -68,12 +68,12 @@ func (cc *ChannelClient) BatchGetChannelServerID(ctx context.Context,
 
 	wg := sync.WaitGroup{}
 	mut := sync.Mutex{}
-	found := make(map[uuid.UUID]uuid.UUID)
-	var notFound []uuid.UUID
+	found := make(map[struuid.UUID]struuid.UUID)
+	var notFound []struuid.UUID
 	var errOut error
 	var cachePipeline redis.Pipeliner
 
-	etcdProcess := func(channelID uuid.UUID) error {
+	etcdProcess := func(channelID struuid.UUID) error {
 		channelIDString := channelID.String()
 		key := fmt.Sprintf("channel-%s", channelIDString)
 		res, err := cc.kvClient.Get(ctx, key, v3.WithSerializable())
@@ -89,7 +89,7 @@ func (cc *ChannelClient) BatchGetChannelServerID(ctx context.Context,
 		}
 
 		serverIDString := string(res.Kvs[0].Value)
-		serverID, err := uuid.Parse(serverIDString)
+		serverID, err := struuid.Parse(serverIDString)
 		if err != nil {
 			return err
 		}
@@ -126,7 +126,7 @@ func (cc *ChannelClient) BatchGetChannelServerID(ctx context.Context,
 			return nil, nil, err
 		}
 
-		serverID, err := uuid.Parse(serverIDString)
+		serverID, err := struuid.Parse(serverIDString)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -147,17 +147,17 @@ func (cc *ChannelClient) BatchGetChannelServerID(ctx context.Context,
 
 // GetChannelServerID returns the binded serverID or ErrChannelNotFound
 func (cc *ChannelClient) GetChannelServerID(ctx context.Context,
-	channelID uuid.UUID) (uuid.UUID, error) {
+	channelID struuid.UUID) (struuid.UUID, error) {
 	channelIDString := channelID.String()
 	cachedServerIDString, err := cc.redisClient.Get("cache_" + channelIDString).Result()
 	if err == redis.Nil {
 	} else if err != nil {
-		return uuid.Nil, err
+		return struuid.Nil, err
 	} else {
-		serverID, err := uuid.Parse(cachedServerIDString)
+		serverID, err := struuid.Parse(cachedServerIDString)
 		if err != nil {
 			// TODO: handle error gracefully.
-			return uuid.Nil, err
+			return struuid.Nil, err
 		}
 		return serverID, nil
 	}
@@ -165,17 +165,17 @@ func (cc *ChannelClient) GetChannelServerID(ctx context.Context,
 	key := fmt.Sprintf("channel-%s", channelIDString)
 	res, err := cc.kvClient.Get(ctx, key, v3.WithSerializable())
 	if err != nil {
-		return uuid.Nil, err
+		return struuid.Nil, err
 	}
 
 	if len(res.Kvs) == 0 {
-		return uuid.Nil, ErrChannelNotFound
+		return struuid.Nil, ErrChannelNotFound
 	}
 
 	serverIDString := string(res.Kvs[0].Value)
-	serverID, err := uuid.Parse(serverIDString)
+	serverID, err := struuid.Parse(serverIDString)
 	if err != nil {
-		return uuid.Nil, err
+		return struuid.Nil, err
 	}
 
 	// TODO: configure expiry.
@@ -183,7 +183,7 @@ func (cc *ChannelClient) GetChannelServerID(ctx context.Context,
 		serverIDString, 2*time.Minute).Err()
 	if err != nil {
 		// TODO: handle error gracefully.
-		return uuid.Nil, err
+		return struuid.Nil, err
 	}
 
 	return serverID, nil
@@ -192,7 +192,7 @@ func (cc *ChannelClient) GetChannelServerID(ctx context.Context,
 // AcquireChannel tries to acquire the channel, if it is already locked
 // by annother service, request that server to release it.
 func (cc *ChannelClient) AcquireChannel(ctx context.Context,
-	channelID uuid.UUID, releaseFunc RequestRelease) error {
+	channelID struuid.UUID, releaseFunc RequestRelease) error {
 	cc.leaseIDLock.RLock()
 	leaseID := cc.leaseID
 	cc.leaseIDLock.RUnlock()
@@ -209,7 +209,7 @@ func (cc *ChannelClient) AcquireChannel(ctx context.Context,
 	}
 
 	if len(prev.Kvs) > 0 && prev.Kvs[0].CreateRevision != 0 {
-		serverID, err := uuid.Parse(string(prev.Kvs[0].Value))
+		serverID, err := struuid.Parse(string(prev.Kvs[0].Value))
 		if err != nil {
 			return err
 		}
@@ -243,7 +243,7 @@ func (cc *ChannelClient) AcquireChannel(ctx context.Context,
 
 // ReleaseChannel releases a channel so other servers can acquire it.
 func (cc *ChannelClient) ReleaseChannel(ctx context.Context,
-	channelID uuid.UUID) error {
+	channelID struuid.UUID) error {
 	cc.leaseIDLock.RLock()
 	leaseID := cc.leaseID
 	cc.leaseIDLock.RUnlock()

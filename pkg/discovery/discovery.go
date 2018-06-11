@@ -9,9 +9,10 @@ import (
 	"time"
 
 	etcd_clientv3 "github.com/coreos/etcd/clientv3"
-	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 	funk "github.com/thoas/go-funk"
+
+	"github.com/hpidcock/pub2sub/pkg/struuid"
 )
 
 type DiscoveryClient struct {
@@ -33,7 +34,7 @@ func NewDiscoveryClient(etcdClient *etcd_clientv3.Client) (*DiscoveryClient, err
 }
 
 func (dc *DiscoveryClient) Broadcast(ctx context.Context, serviceName string,
-	serverID uuid.UUID, value string) (errOut error) {
+	serverID struuid.UUID, value string) (errOut error) {
 	ctx, cancelFunc := context.WithCancel(ctx)
 	defer cancelFunc()
 
@@ -166,9 +167,9 @@ func NewDiscoveryMap(discoveryClient *DiscoveryClient) (*DiscoveryMap, error) {
 		DiscoveryCollection: DiscoveryCollection{
 			discoveryClient: discoveryClient,
 			toContainer: func(servicePrefix string, current map[string]string) interface{} {
-				return funk.Map(current, func(key string, value string) (uuid.UUID, string) {
+				return funk.Map(current, func(key string, value string) (struuid.UUID, string) {
 					id := strings.TrimPrefix(key, servicePrefix)
-					return uuid.Must(uuid.Parse(id)), value
+					return struuid.Must(struuid.Parse(id)), value
 				})
 			},
 		},
@@ -177,6 +178,6 @@ func NewDiscoveryMap(discoveryClient *DiscoveryClient) (*DiscoveryMap, error) {
 	return dl, nil
 }
 
-func (dm *DiscoveryMap) GetMap() map[uuid.UUID]string {
-	return dm.list.Load().(map[uuid.UUID]string)
+func (dm *DiscoveryMap) GetMap() map[struuid.UUID]string {
+	return dm.list.Load().(map[struuid.UUID]string)
 }

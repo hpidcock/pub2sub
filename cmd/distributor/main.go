@@ -19,13 +19,14 @@ import (
 	"github.com/hpidcock/pub2sub/pkg/clientcache"
 	"github.com/hpidcock/pub2sub/pkg/discovery"
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
+	"github.com/hpidcock/pub2sub/pkg/struuid"
 	"github.com/hpidcock/pub2sub/pkg/topic"
 	"github.com/hpidcock/pub2sub/pkg/workerpool"
 )
 
 type Provider struct {
 	config   Config
-	serverID uuid.UUID
+	serverID struuid.UUID
 
 	redisClient redis.UniversalClient
 	etcdClient  *etcd_clientv3.Client
@@ -153,7 +154,7 @@ func run(ctx context.Context) error {
 	log.Print("starting pub2sub distributor")
 
 	provider := &Provider{
-		serverID:                  uuid.New(),
+		serverID:                  struuid.FromUUID(uuid.New()),
 		plannerDispatchWorkerPool: workerpool.New(ctx),
 	}
 	provider.config, err = NewConfig()

@@ -9,7 +9,7 @@ import (
 
 	"github.com/go-redis/redis"
 	"github.com/gobuffalo/packr"
-	"github.com/google/uuid"
+	"github.com/hpidcock/pub2sub/pkg/struuid"
 )
 
 var (
@@ -53,7 +53,7 @@ func NewController(redisClient redis.UniversalClient) (*Controller, error) {
 }
 
 func (m *Controller) GetTopicsWidth(ctx context.Context,
-	topicIDs []uuid.UUID, asOf time.Time) ([]int64, error) {
+	topicIDs []struuid.UUID, asOf time.Time) ([]int64, error) {
 	bucket := time.Duration(asOf.Unix()) * time.Second
 	bucket = bucket.Truncate(m.topicGenerationAge)
 	suffix := int(bucket / time.Second)
@@ -78,8 +78,8 @@ func (m *Controller) GetTopicsWidth(ctx context.Context,
 }
 
 func (m *Controller) ScanTopic(ctx context.Context,
-	topicID uuid.UUID, asOf time.Time,
-	begin uuid.UUID, end uuid.UUID) ([]uuid.UUID, error) {
+	topicID struuid.UUID, asOf time.Time,
+	begin struuid.UUID, end struuid.UUID) ([]struuid.UUID, error) {
 	bucket := time.Duration(asOf.Unix()) * time.Second
 	bucket = bucket.Truncate(m.topicGenerationAge)
 	suffix := int(bucket / time.Second)
@@ -96,16 +96,16 @@ func (m *Controller) ScanTopic(ctx context.Context,
 	}
 
 	channelIDStrings := res.Val()
-	channelIDs := make([]uuid.UUID, len(channelIDStrings))
+	channelIDs := make([]struuid.UUID, len(channelIDStrings))
 	for k, v := range channelIDStrings {
-		channelIDs[k] = uuid.Must(uuid.Parse(v))
+		channelIDs[k] = struuid.Must(struuid.Parse(v))
 	}
 
 	return channelIDs, nil
 }
 
 func (m *Controller) CreateOrExtendQueue(ctx context.Context,
-	channelID uuid.UUID, duration time.Duration) (bool, error) {
+	channelID struuid.UUID, duration time.Duration) (bool, error) {
 	seconds := int(math.Ceil(duration.Seconds()))
 
 	pipeline := m.redisClient.Pipeline()
@@ -129,7 +129,7 @@ func (m *Controller) CreateOrExtendQueue(ctx context.Context,
 	return resInt == 1, nil
 }
 
-func (m *Controller) DeleteQueue(ctx context.Context, channelID uuid.UUID) error {
+func (m *Controller) DeleteQueue(ctx context.Context, channelID struuid.UUID) error {
 	pipeline := m.redisClient.Pipeline()
 	pipeline.Del(channelID.String())
 	_, err := pipeline.Exec()
@@ -141,7 +141,7 @@ func (m *Controller) DeleteQueue(ctx context.Context, channelID uuid.UUID) error
 }
 
 func (m *Controller) ExtendQueue(ctx context.Context,
-	channelID uuid.UUID, duration time.Duration) error {
+	channelID struuid.UUID, duration time.Duration) error {
 	seconds := int(math.Ceil(duration.Seconds()))
 
 	pipeline := m.redisClient.Pipeline()
@@ -165,7 +165,7 @@ func (m *Controller) ExtendQueue(ctx context.Context,
 }
 
 func (m *Controller) Subscribe(ctx context.Context,
-	topicID uuid.UUID, asOf time.Time, channelID uuid.UUID) (time.Time, error) {
+	topicID struuid.UUID, asOf time.Time, channelID struuid.UUID) (time.Time, error) {
 	bucket := time.Duration(asOf.Unix()) * time.Second
 	bucket = bucket.Truncate(m.topicGenerationAge)
 	suffix := int64(bucket / time.Second)
@@ -196,7 +196,7 @@ func (m *Controller) Subscribe(ctx context.Context,
 }
 
 func (m *Controller) PushMessage(ctx context.Context,
-	channelID uuid.UUID, payload []byte) (string, error) {
+	channelID struuid.UUID, payload []byte) (string, error) {
 	pipeline := m.redisClient.Pipeline()
 	res := pipeline.EvalSha(m.pushIfExists,
 		[]string{channelID.String()},
@@ -218,7 +218,7 @@ func (m *Controller) PushMessage(ctx context.Context,
 }
 
 func (m *Controller) DeleteMessage(ctx context.Context,
-	channelID uuid.UUID, id string) error {
+	channelID struuid.UUID, id string) error {
 	err := m.redisClient.XDel(channelID.String(), id).Err()
 	if err != nil {
 		return err
@@ -233,7 +233,7 @@ type MessageEntry struct {
 }
 
 func (m *Controller) ReadMessages(ctx context.Context,
-	channelID uuid.UUID, lastMessageID string, limit int) ([]MessageEntry, error) {
+	channelID struuid.UUID, lastMessageID string, limit int) ([]MessageEntry, error) {
 	id := channelID.String()
 	if lastMessageID == "" {
 		lastMessageID = "0-0"

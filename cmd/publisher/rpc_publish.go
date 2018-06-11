@@ -9,10 +9,10 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 
-	"github.com/google/uuid"
 	"github.com/thoas/go-funk"
 
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
+	"github.com/hpidcock/pub2sub/pkg/struuid"
 )
 
 func (p *Provider) Publish(ctx context.Context,
@@ -24,9 +24,9 @@ func (p *Provider) Publish(ctx context.Context,
 		return &pb.PublishResponse{}, nil
 	}
 
-	topicIDs := make([]uuid.UUID, topicCount)
+	topicIDs := make([]struuid.UUID, topicCount)
 	for k, v := range req.TopicIds {
-		topicID, err := uuid.Parse(v)
+		topicID, err := struuid.Parse(v)
 		if err != nil {
 			return nil, err
 		}
