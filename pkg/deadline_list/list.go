@@ -38,12 +38,20 @@ func New(ttl time.Duration) *List {
 
 // Wait returns a chan to alert on new elements passed their deadline.
 func (al *List) Wait() <-chan time.Time {
+	if al == nil {
+		return nil
+	}
+
 	return al.timer.C
 }
 
 // Close can be called to remove pending items.
 // Returns all the pending items.
 func (al *List) Close() []interface{} {
+	if al == nil {
+		return nil
+	}
+
 	var res []interface{}
 	for _, v := range al.pending {
 		res = append(res, v.value)
@@ -59,6 +67,10 @@ func (al *List) Close() []interface{} {
 // Pop should be called after wait chan posts
 // Returns an item that's passed it's deadline or nil.
 func (al *List) Pop() interface{} {
+	if al == nil {
+		return nil
+	}
+
 	if al.nextItem == -1 || al.pending == nil {
 		return nil
 	}
@@ -125,6 +137,10 @@ func (al *List) Push(value interface{}) int64 {
 // Remove returns and removes the item from the list.
 // Will return nil if the item does not exist or was nil.
 func (al *List) Remove(id int64) interface{} {
+	if al == nil {
+		return nil
+	}
+
 	if id < al.nextItem ||
 		id > al.lastItem ||
 		al.pending == nil {
