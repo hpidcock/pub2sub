@@ -165,7 +165,7 @@ func (m *Controller) ExtendQueue(ctx context.Context,
 }
 
 func (m *Controller) Subscribe(ctx context.Context,
-	topicID struuid.UUID, asOf time.Time, channelID struuid.UUID) (time.Time, error) {
+	topicID struuid.UUID, asOf time.Time, channelID struuid.UUID) (time.Time, bool, error) {
 	bucket := time.Duration(asOf.Unix()) * time.Second
 	bucket = bucket.Truncate(m.topicGenerationAge)
 	suffix := int64(bucket / time.Second)
@@ -179,20 +179,42 @@ func (m *Controller) Subscribe(ctx context.Context,
 		channelID.String())
 	_, err := pipeline.Exec()
 	if err != nil {
-		return time.Time{}, err
+		return time.Time{}, false, err
 	}
 
 	value, _ := res.Result()
 	asInt, ok := value.(int64)
 	if ok == false {
-		return time.Time{}, ErrResultParseFailed
+		return time.Time{}, false, ErrResultParseFailed
 	}
 
+	exists := asInt == 0
 	if asInt != 0 && asInt != 1 {
-		return time.Time{}, ErrSubscribeFailed
+		return time.Time{}, false, ErrSubscribeFailed
 	}
 
-	return expireAt, nil
+	return expireAt, exists, nil
+}
+
+func (m *Controller) Unsubscribe(ctx context.Context,
+	topicID struuid.UUID, asOf time.Time, channelID struuid.UUID) (time.Time, bool, error) {
+	bucket := time.Duration(asOf.Unix()) * time.Second
+	bucket = bucket.Truncate(m.topicGenerationAge)
+	suffix := int64(bucket / time.Second)
+	topicKey := fmt.Sprintf("%s-%d", topicID.String(), suffix)
+	expireAt := time.Unix(suffix, 0).Add(m.topicGenerationAge)
+
+	pipeline := m.redisClient.Pipeline()
+	res := pipeline.ZRem(topicKey, channelID.String())
+	_, err := pipeline.Exec()
+	if err != nil {
+		return time.Time{}, false, err
+	}
+
+	count, _ := res.Result()
+	exists := count == 1
+
+	return expireAt, exists, nil
 }
 
 func (m *Controller) PushMessage(ctx context.Context,

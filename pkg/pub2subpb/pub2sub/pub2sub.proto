@@ -192,10 +192,22 @@ message LeaseRequest {
 message LeaseResponse {
     // Seconds acquired for.
     int64 ttl = 1;
+
+    // Did the lease exist already.
+    bool exists = 2;
+}
+
+message RevokeLeaseRequest {
+    string channel_id = 1;
+    string topic_id = 2;
+}
+
+message RevokeLeaseResponse {
 }
 
 service SubscribeService {
     rpc Stream(StreamRequest) returns (stream StreamResponse);
     rpc Ack(AckRequest) returns (AckResponse);
     rpc Lease(LeaseRequest) returns (LeaseResponse);
+    rpc RevokeLease(RevokeLeaseRequest) returns (RevokeLeaseResponse);
 }
