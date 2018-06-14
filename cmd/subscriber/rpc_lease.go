@@ -10,6 +10,7 @@ import (
 
 	pb "github.com/hpidcock/pub2sub/pkg/pub2subpb"
 	"github.com/hpidcock/pub2sub/pkg/struuid"
+	"github.com/hpidcock/pub2sub/pkg/topic"
 )
 
 var (
@@ -39,15 +40,17 @@ func (p *Provider) Lease(ctx context.Context,
 
 	asOf := start
 	target := asOf.Add(expireDuration)
+	didAlreadyExist := false
 
 	for asOf.Before(target) {
-		upTo, err := p.topicController.Subscribe(ctx, topicID, asOf, channelID)
+		upTo, exists, err := p.topicController.Subscribe(ctx, topicID, asOf, channelID)
 		if err != nil {
 			log.Print(err)
 			// TODO: Handle error
 			break
 		}
 
+		didAlreadyExist = didAlreadyExist || exists
 		asOf = upTo
 	}
 
@@ -57,12 +60,14 @@ func (p *Provider) Lease(ctx context.Context,
 
 	leaseDuration := asOf.Sub(start)
 	err = p.topicController.ExtendQueue(ctx, channelID, leaseDuration)
-	if err != nil {
+	if err == topic.ErrQueueNotFound {
+	} else if err != nil {
 		return nil, err
 	}
 
 	res := &pb.LeaseResponse{
-		Ttl: int64(leaseDuration.Seconds()),
+		Ttl:    int64(leaseDuration.Seconds()),
+		Exists: didAlreadyExist,
 	}
 	return res, nil
 }
