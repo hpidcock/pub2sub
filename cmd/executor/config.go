@@ -10,6 +10,8 @@ type Config struct {
 	RedisCluster   bool   `default:"false"`
 	EtcdAddress    string `default:"localhost:2379"`
 	AnnouceAddress string `default:"localhost"`
+
+	ClusterName string `required:"true"`
 }
 
 func NewConfig() (Config, error) {

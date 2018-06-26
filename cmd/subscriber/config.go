@@ -14,6 +14,8 @@ type Config struct {
 	AnnouceAddress         string        `default:"localhost"`
 	MaxSubscribeDuration   time.Duration `default:"5m"`
 	QueueKeepAliveDuration time.Duration `default:"5m"`
+
+	ClusterName string `required:"true"`
 }
 
 func NewConfig() (Config, error) {

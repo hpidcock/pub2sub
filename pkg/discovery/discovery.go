@@ -20,14 +20,22 @@ type DiscoveryClient struct {
 	leaseClient etcd_clientv3.Lease
 	kvClient    etcd_clientv3.KV
 	watchClient etcd_clientv3.Watcher
+
+	clusterName string
 }
 
-func NewDiscoveryClient(etcdClient *etcd_clientv3.Client) (*DiscoveryClient, error) {
+const (
+	discoveryKey = "%s/discovery/%s/%s"
+)
+
+func NewDiscoveryClient(etcdClient *etcd_clientv3.Client,
+	clusterName string) (*DiscoveryClient, error) {
 	dc := &DiscoveryClient{
 		etcdClient:  etcdClient,
 		leaseClient: etcd_clientv3.NewLease(etcdClient),
 		kvClient:    etcd_clientv3.NewKV(etcdClient),
 		watchClient: etcd_clientv3.Watcher(etcdClient),
+		clusterName: clusterName,
 	}
 
 	return dc, nil
@@ -54,7 +62,7 @@ func (dc *DiscoveryClient) Broadcast(ctx context.Context, serviceName string,
 		}
 	}()
 
-	keyName := fmt.Sprintf("%s-%s", serviceName, serverID.String())
+	keyName := fmt.Sprintf(discoveryKey, dc.clusterName, serviceName, serverID.String())
 	_, err = dc.kvClient.Put(ctx, keyName, value, etcd_clientv3.WithLease(leaseID))
 	if err != nil {
 		return err
@@ -95,7 +103,7 @@ func (dc *DiscoveryCollection) Watch(ctx context.Context, serviceName string) (e
 	ctx, cancelFunc := context.WithCancel(ctx)
 	defer cancelFunc()
 
-	servicePrefix := fmt.Sprintf("%s-", serviceName)
+	servicePrefix := fmt.Sprintf(discoveryKey, dc.discoveryClient.clusterName, serviceName, "")
 	beginKey := fmt.Sprintf("%s00000000-0000-0000-0000-000000000000", servicePrefix)
 	endKey := fmt.Sprintf("%sffffffff-ffff-ffff-ffff-ffffffffffff", servicePrefix)
 

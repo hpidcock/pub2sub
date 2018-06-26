@@ -33,15 +33,21 @@ type ChannelClient struct {
 	leaseID     v3.LeaseID
 	leaseIDLock sync.RWMutex
 
-	serverID struuid.UUID
+	serverID    struuid.UUID
+	clusterName string
 
 	redisClient    redis.UniversalClient
 	etcdWorkerPool *workerpool.WorkerPool
 }
 
+const (
+	channelCacheKey = "%s/cache/%s"
+	channelEtcdKey  = "%s/channel/%s"
+)
+
 // NewChannelClient returns a new client for acquiring channels and their allocated server.
 func NewChannelClient(etcdClient *v3.Client,
-	redisClient redis.UniversalClient,
+	redisClient redis.UniversalClient, clusterName string,
 	serverID struuid.UUID) (*ChannelClient, error) {
 	cc := &ChannelClient{
 		etcdClient:     etcdClient,
@@ -49,6 +55,7 @@ func NewChannelClient(etcdClient *v3.Client,
 		kvClient:       v3.NewKV(etcdClient),
 		watchClient:    v3.Watcher(etcdClient),
 		serverID:       serverID,
+		clusterName:    clusterName,
 		redisClient:    redisClient,
 		etcdWorkerPool: workerpool.New(etcdClient.Ctx()),
 	}
@@ -62,7 +69,8 @@ func (cc *ChannelClient) BatchGetChannelServerID(ctx context.Context,
 	pipeline := cc.redisClient.Pipeline()
 	for _, channelID := range channelIDs {
 		channelIDString := channelID.String()
-		cmds[channelID] = pipeline.Get("cache_" + channelIDString)
+		cacheKey := fmt.Sprintf(channelCacheKey, cc.clusterName, channelIDString)
+		cmds[channelID] = pipeline.Get(cacheKey)
 	}
 	pipeline.Exec()
 
@@ -75,7 +83,7 @@ func (cc *ChannelClient) BatchGetChannelServerID(ctx context.Context,
 
 	etcdProcess := func(channelID struuid.UUID) error {
 		channelIDString := channelID.String()
-		key := fmt.Sprintf("channel-%s", channelIDString)
+		key := fmt.Sprintf(channelEtcdKey, cc.clusterName, channelIDString)
 		res, err := cc.kvClient.Get(ctx, key, v3.WithSerializable())
 		if err != nil {
 			return err
@@ -99,8 +107,9 @@ func (cc *ChannelClient) BatchGetChannelServerID(ctx context.Context,
 		if cachePipeline == nil {
 			cachePipeline = cc.redisClient.Pipeline()
 		}
-		cachePipeline.Set("cache_"+channelIDString,
-			serverIDString, 2*time.Minute)
+
+		cacheKey := fmt.Sprintf(channelCacheKey, cc.clusterName, channelIDString)
+		cachePipeline.Set(cacheKey, serverIDString, 2*time.Minute)
 		mut.Unlock()
 
 		return nil
@@ -149,7 +158,8 @@ func (cc *ChannelClient) BatchGetChannelServerID(ctx context.Context,
 func (cc *ChannelClient) GetChannelServerID(ctx context.Context,
 	channelID struuid.UUID) (struuid.UUID, error) {
 	channelIDString := channelID.String()
-	cachedServerIDString, err := cc.redisClient.Get("cache_" + channelIDString).Result()
+	cacheKey := fmt.Sprintf(channelCacheKey, cc.clusterName, channelIDString)
+	cachedServerIDString, err := cc.redisClient.Get(cacheKey).Result()
 	if err == redis.Nil {
 	} else if err != nil {
 		return struuid.Nil, err
@@ -162,7 +172,7 @@ func (cc *ChannelClient) GetChannelServerID(ctx context.Context,
 		return serverID, nil
 	}
 
-	key := fmt.Sprintf("channel-%s", channelIDString)
+	key := fmt.Sprintf(channelEtcdKey, cc.clusterName, channelIDString)
 	res, err := cc.kvClient.Get(ctx, key, v3.WithSerializable())
 	if err != nil {
 		return struuid.Nil, err
@@ -179,8 +189,7 @@ func (cc *ChannelClient) GetChannelServerID(ctx context.Context,
 	}
 
 	// TODO: configure expiry.
-	err = cc.redisClient.Set("cache_"+channelIDString,
-		serverIDString, 2*time.Minute).Err()
+	err = cc.redisClient.Set(cacheKey, serverIDString, 2*time.Minute).Err()
 	if err != nil {
 		// TODO: handle error gracefully.
 		return struuid.Nil, err
@@ -200,7 +209,7 @@ func (cc *ChannelClient) AcquireChannel(ctx context.Context,
 		return ErrNoLease
 	}
 
-	key := fmt.Sprintf("channel-%s", channelID.String())
+	key := fmt.Sprintf(channelEtcdKey, cc.clusterName, channelID.String())
 	value := cc.serverID.String()
 
 	prev, err := cc.kvClient.Get(ctx, key)
@@ -233,7 +242,8 @@ func (cc *ChannelClient) AcquireChannel(ctx context.Context,
 		return ErrFailedAcquire
 	}
 
-	err = cc.redisClient.Del("cache_" + channelID.String()).Err()
+	cacheKey := fmt.Sprintf(channelCacheKey, cc.clusterName, channelID.String())
+	err = cc.redisClient.Del(cacheKey).Err()
 	if err != nil {
 		return err
 	}
@@ -251,7 +261,7 @@ func (cc *ChannelClient) ReleaseChannel(ctx context.Context,
 		return ErrNoLease
 	}
 
-	key := fmt.Sprintf("channel-%s", channelID.String())
+	key := fmt.Sprintf(channelEtcdKey, cc.clusterName, channelID.String())
 
 	txn := cc.kvClient.Txn(ctx)
 	txn = txn.If(v3.Compare(v3.LeaseValue(key), "=", leaseID))

@@ -26,13 +26,20 @@ type Controller struct {
 	extendQueue         string
 	pushIfExists        string
 	topicGenerationAge  time.Duration
+	clusterName         string
 }
 
-func NewController(redisClient redis.UniversalClient) (*Controller, error) {
+const (
+	redisTopicKey   = "%s/t/%s/%d"
+	redisChannelKey = "%s/c/%s"
+)
+
+func NewController(redisClient redis.UniversalClient, clusterName string) (*Controller, error) {
 	var err error
 	controller := Controller{
 		redisClient:        redisClient,
 		topicGenerationAge: 100 * time.Second,
+		clusterName:        clusterName,
 	}
 
 	box := packr.NewBox("./lua")
@@ -61,7 +68,7 @@ func (m *Controller) GetTopicsWidth(ctx context.Context,
 	cmds := make([]*redis.IntCmd, len(topicIDs))
 	pipeline := m.redisClient.Pipeline()
 	for k, topicID := range topicIDs {
-		topicKey := fmt.Sprintf("%s-%d", topicID.String(), suffix)
+		topicKey := fmt.Sprintf(redisTopicKey, m.clusterName, topicID.String(), suffix)
 		cmds[k] = pipeline.ZCard(topicKey)
 	}
 	_, err := pipeline.Exec()
@@ -83,7 +90,7 @@ func (m *Controller) ScanTopic(ctx context.Context,
 	bucket := time.Duration(asOf.Unix()) * time.Second
 	bucket = bucket.Truncate(m.topicGenerationAge)
 	suffix := int(bucket / time.Second)
-	topicKey := fmt.Sprintf("%s-%d", topicID.String(), suffix)
+	topicKey := fmt.Sprintf(redisTopicKey, m.clusterName, topicID.String(), suffix)
 
 	pipeline := m.redisClient.Pipeline()
 	res := pipeline.ZRangeByLex(topicKey, redis.ZRangeBy{
@@ -108,8 +115,10 @@ func (m *Controller) CreateOrExtendQueue(ctx context.Context,
 	channelID struuid.UUID, duration time.Duration) (bool, error) {
 	seconds := int(math.Ceil(duration.Seconds()))
 
+	channelKey := fmt.Sprintf(redisChannelKey, m.clusterName, channelID.String())
+
 	pipeline := m.redisClient.Pipeline()
-	res := pipeline.EvalSha(m.createOrExtendQueue, []string{channelID.String()}, seconds)
+	res := pipeline.EvalSha(m.createOrExtendQueue, []string{channelKey}, seconds)
 	_, err := pipeline.Exec()
 	if err != nil {
 		return false, err
@@ -130,8 +139,10 @@ func (m *Controller) CreateOrExtendQueue(ctx context.Context,
 }
 
 func (m *Controller) DeleteQueue(ctx context.Context, channelID struuid.UUID) error {
+	channelKey := fmt.Sprintf(redisChannelKey, m.clusterName, channelID.String())
+
 	pipeline := m.redisClient.Pipeline()
-	pipeline.Del(channelID.String())
+	pipeline.Del(channelKey)
 	_, err := pipeline.Exec()
 	if err != nil {
 		return err
@@ -143,9 +154,10 @@ func (m *Controller) DeleteQueue(ctx context.Context, channelID struuid.UUID) er
 func (m *Controller) ExtendQueue(ctx context.Context,
 	channelID struuid.UUID, duration time.Duration) error {
 	seconds := int(math.Ceil(duration.Seconds()))
+	channelKey := fmt.Sprintf(redisChannelKey, m.clusterName, channelID.String())
 
 	pipeline := m.redisClient.Pipeline()
-	res := pipeline.EvalSha(m.extendQueue, []string{channelID.String()}, seconds)
+	res := pipeline.EvalSha(m.extendQueue, []string{channelKey}, seconds)
 	_, err := pipeline.Exec()
 	if err != nil {
 		return err
@@ -169,7 +181,7 @@ func (m *Controller) Subscribe(ctx context.Context,
 	bucket := time.Duration(asOf.Unix()) * time.Second
 	bucket = bucket.Truncate(m.topicGenerationAge)
 	suffix := int64(bucket / time.Second)
-	topicKey := fmt.Sprintf("%s-%d", topicID.String(), suffix)
+	topicKey := fmt.Sprintf(redisTopicKey, m.clusterName, topicID.String(), suffix)
 	expireAt := time.Unix(suffix, 0).Add(m.topicGenerationAge)
 
 	pipeline := m.redisClient.Pipeline()
@@ -201,7 +213,7 @@ func (m *Controller) Unsubscribe(ctx context.Context,
 	bucket := time.Duration(asOf.Unix()) * time.Second
 	bucket = bucket.Truncate(m.topicGenerationAge)
 	suffix := int64(bucket / time.Second)
-	topicKey := fmt.Sprintf("%s-%d", topicID.String(), suffix)
+	topicKey := fmt.Sprintf(redisTopicKey, m.clusterName, topicID.String(), suffix)
 	expireAt := time.Unix(suffix, 0).Add(m.topicGenerationAge)
 
 	pipeline := m.redisClient.Pipeline()
@@ -219,9 +231,10 @@ func (m *Controller) Unsubscribe(ctx context.Context,
 
 func (m *Controller) PushMessage(ctx context.Context,
 	channelID struuid.UUID, payload []byte) (string, error) {
+	channelKey := fmt.Sprintf(redisChannelKey, m.clusterName, channelID.String())
 	pipeline := m.redisClient.Pipeline()
 	res := pipeline.EvalSha(m.pushIfExists,
-		[]string{channelID.String()},
+		[]string{channelKey},
 		"p", payload)
 	_, err := pipeline.Exec()
 	if err == redis.Nil {
@@ -241,7 +254,8 @@ func (m *Controller) PushMessage(ctx context.Context,
 
 func (m *Controller) DeleteMessage(ctx context.Context,
 	channelID struuid.UUID, id string) error {
-	err := m.redisClient.XDel(channelID.String(), id).Err()
+	channelKey := fmt.Sprintf(redisChannelKey, m.clusterName, channelID.String())
+	err := m.redisClient.XDel(channelKey, id).Err()
 	if err != nil {
 		return err
 	}
@@ -256,21 +270,21 @@ type MessageEntry struct {
 
 func (m *Controller) ReadMessages(ctx context.Context,
 	channelID struuid.UUID, lastMessageID string, limit int) ([]MessageEntry, error) {
-	id := channelID.String()
+	channelKey := fmt.Sprintf(redisChannelKey, m.clusterName, channelID.String())
 	if lastMessageID == "" {
 		lastMessageID = "0-0"
 	}
 
 	// TODO: Batch reads on slotid
 	res, err := m.redisClient.XReadN(int64(limit),
-		id, lastMessageID).Result()
+		channelKey, lastMessageID).Result()
 	if err == redis.Nil {
 		return nil, nil
 	} else if err != nil {
 		return nil, err
 	}
 
-	entries, ok := res[id]
+	entries, ok := res[channelKey]
 	if ok == false {
 		return nil, nil
 	}

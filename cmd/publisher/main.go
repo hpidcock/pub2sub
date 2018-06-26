@@ -94,7 +94,7 @@ func (p *Provider) init() error {
 
 	p.grpcClients = clientcache.NewCache(60*time.Second, 10*time.Second)
 
-	p.topicController, err = topic.NewController(p.redisClient)
+	p.topicController, err = topic.NewController(p.redisClient, p.config.ClusterName)
 	if err != nil {
 		return err
 	}
@@ -109,7 +109,7 @@ func (p *Provider) init() error {
 		return err
 	}
 
-	p.disc, err = discovery.NewDiscoveryClient(p.etcdClient)
+	p.disc, err = discovery.NewDiscoveryClient(p.etcdClient, p.config.ClusterName)
 	if err != nil {
 		return err
 	}
