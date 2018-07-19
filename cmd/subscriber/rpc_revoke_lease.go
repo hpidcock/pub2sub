@@ -28,7 +28,7 @@ func (p *Provider) RevokeLease(ctx context.Context,
 	exists := true
 
 	for i := 0; i < RevokeLimit && exists; i++ {
-		upTo, exists, err = p.topicController.Subscribe(ctx, topicID, upTo, channelID)
+		upTo, exists, err = p.topicController.Unsubscribe(ctx, topicID, upTo, channelID)
 		if err != nil {
 			return nil, err
 		}
