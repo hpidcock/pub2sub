@@ -21,10 +21,10 @@ var (
 
 type Controller struct {
 	redisClient         redis.UniversalClient
-	addToTopic          string
-	createOrExtendQueue string
-	extendQueue         string
-	pushIfExists        string
+	addToTopic          *redis.Script
+	createOrExtendQueue *redis.Script
+	extendQueue         *redis.Script
+	pushIfExists        *redis.Script
 	topicGenerationAge  time.Duration
 	clusterName         string
 }
@@ -43,14 +43,10 @@ func NewController(redisClient redis.UniversalClient, clusterName string) (*Cont
 	}
 
 	box := packr.NewBox("./lua")
-	controller.addToTopic, err = redisClient.ScriptLoad(
-		box.String("add_to_topic.lua")).Result()
-	controller.createOrExtendQueue, err = redisClient.ScriptLoad(
-		box.String("create_or_extend_queue.lua")).Result()
-	controller.extendQueue, err = redisClient.ScriptLoad(
-		box.String("extend_queue.lua")).Result()
-	controller.pushIfExists, err = redisClient.ScriptLoad(
-		box.String("push_if_exists.lua")).Result()
+	controller.addToTopic = redis.NewScript(box.String("add_to_topic.lua"))
+	controller.createOrExtendQueue = redis.NewScript(box.String("create_or_extend_queue.lua"))
+	controller.extendQueue = redis.NewScript(box.String("extend_queue.lua"))
+	controller.pushIfExists = redis.NewScript(box.String("push_if_exists.lua"))
 
 	if err != nil {
 		return nil, err
@@ -117,9 +113,8 @@ func (m *Controller) CreateOrExtendQueue(ctx context.Context,
 
 	channelKey := fmt.Sprintf(redisChannelKey, m.clusterName, channelID.String())
 
-	pipeline := m.redisClient.Pipeline()
-	res := pipeline.EvalSha(m.createOrExtendQueue, []string{channelKey}, seconds)
-	_, err := pipeline.Exec()
+	res := m.createOrExtendQueue.Run(m.redisClient, []string{channelKey}, seconds)
+	err := res.Err()
 	if err != nil {
 		return false, err
 	}
@@ -156,9 +151,8 @@ func (m *Controller) ExtendQueue(ctx context.Context,
 	seconds := int(math.Ceil(duration.Seconds()))
 	channelKey := fmt.Sprintf(redisChannelKey, m.clusterName, channelID.String())
 
-	pipeline := m.redisClient.Pipeline()
-	res := pipeline.EvalSha(m.extendQueue, []string{channelKey}, seconds)
-	_, err := pipeline.Exec()
+	res := m.extendQueue.Run(m.redisClient, []string{channelKey}, seconds)
+	err := res.Err()
 	if err != nil {
 		return err
 	}
@@ -184,12 +178,11 @@ func (m *Controller) Subscribe(ctx context.Context,
 	topicKey := fmt.Sprintf(redisTopicKey, m.clusterName, topicID.String(), suffix)
 	expireAt := time.Unix(suffix, 0).Add(m.topicGenerationAge)
 
-	pipeline := m.redisClient.Pipeline()
-	res := pipeline.EvalSha(m.addToTopic,
+	res := m.addToTopic.Run(m.redisClient,
 		[]string{topicKey},
 		expireAt.Unix(),
 		channelID.String())
-	_, err := pipeline.Exec()
+	err := res.Err()
 	if err != nil {
 		return time.Time{}, false, err
 	}
@@ -232,11 +225,10 @@ func (m *Controller) Unsubscribe(ctx context.Context,
 func (m *Controller) PushMessage(ctx context.Context,
 	channelID struuid.UUID, payload []byte) (string, error) {
 	channelKey := fmt.Sprintf(redisChannelKey, m.clusterName, channelID.String())
-	pipeline := m.redisClient.Pipeline()
-	res := pipeline.EvalSha(m.pushIfExists,
+	res := m.pushIfExists.Run(m.redisClient,
 		[]string{channelKey},
 		"p", payload)
-	_, err := pipeline.Exec()
+	err := res.Err()
 	if err == redis.Nil {
 		return "", ErrQueueNotFound
 	} else if err != nil {
