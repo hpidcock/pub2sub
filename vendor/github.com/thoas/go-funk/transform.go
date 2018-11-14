@@ -96,8 +96,8 @@ func ToMap(in interface{}, pivot string) interface{} {
 func mapSlice(arrValue reflect.Value, funcValue reflect.Value) interface{} {
 	funcType := funcValue.Type()
 
-	if funcType.NumIn() != 1 || funcType.NumOut() == 0 {
-		panic("Map function with an array must have one parameter and must return at least one parameter")
+	if funcType.NumIn() != 1 || funcType.NumOut() == 0 || funcType.NumOut() > 2 {
+		panic("Map function with an array must have one parameter and must return one or two parameters")
 	}
 
 	arrElemType := arrValue.Type().Elem()
@@ -145,8 +145,8 @@ func mapSlice(arrValue reflect.Value, funcValue reflect.Value) interface{} {
 func mapMap(arrValue reflect.Value, funcValue reflect.Value) interface{} {
 	funcType := funcValue.Type()
 
-	if funcType.NumIn() != 2 {
-		panic("Map function with an array must have one parameter")
+	if funcType.NumIn() != 2 || funcType.NumOut() == 0 || funcType.NumOut() > 2 {
+		panic("Map function with an map must have one parameter and must return one or two parameters")
 	}
 
 	// Only one returned parameter, should be a slice
@@ -329,4 +329,62 @@ func Uniq(in interface{}) interface{} {
 	}
 
 	panic(fmt.Sprintf("Type %s is not supported by Uniq", valueType.String()))
+}
+
+// ConvertSlice converts a slice type to another,
+// a perfect example would be to convert a slice of struct to a slice of interface.
+func ConvertSlice(in interface{}, out interface{}) {
+	srcValue := reflect.ValueOf(in)
+
+	dstValue := reflect.ValueOf(out)
+
+	if dstValue.Kind() != reflect.Ptr {
+		panic("Second argument must be a pointer")
+	}
+
+	dstValue = dstValue.Elem()
+
+	if srcValue.Kind() != reflect.Slice && srcValue.Kind() != reflect.Array {
+		panic("First argument must be an array or slice")
+	}
+
+	if dstValue.Kind() != reflect.Slice && dstValue.Kind() != reflect.Array {
+		panic("Second argument must be an array or slice")
+	}
+
+	// returns value that points to dstValue
+	direct := reflect.Indirect(dstValue)
+
+	length := srcValue.Len()
+
+	for i := 0; i < length; i++ {
+		dstValue = reflect.Append(dstValue, srcValue.Index(i))
+	}
+
+	direct.Set(dstValue)
+}
+
+// Drop creates an array/slice with `n` elements dropped from the beginning.
+func Drop(in interface{}, n int) interface{} {
+	value := reflect.ValueOf(in)
+	valueType := value.Type()
+
+	kind := value.Kind()
+
+	if kind == reflect.Array || kind == reflect.Slice {
+		length := value.Len()
+
+		resultSlice := makeSlice(value, length-n)
+
+		j := 0
+		for i := n; i < length; i++ {
+			resultSlice.Index(j).Set(value.Index(i))
+			j++
+		}
+
+		return resultSlice.Interface()
+
+	}
+
+	panic(fmt.Sprintf("Type %s is not supported by Drop", valueType.String()))
 }

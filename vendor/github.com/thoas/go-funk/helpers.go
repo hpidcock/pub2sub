@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"math/rand"
 	"reflect"
-	"time"
 )
 
 var numericZeros = []interface{}{
@@ -136,6 +135,15 @@ func IsIteratee(in interface{}) bool {
 	return kind == reflect.Array || kind == reflect.Slice || kind == reflect.Map
 }
 
+// IsCollection returns if the argument is a collection.
+func IsCollection(in interface{}) bool {
+	arrType := reflect.TypeOf(in)
+
+	kind := arrType.Kind()
+
+	return kind == reflect.Array || kind == reflect.Slice
+}
+
 // SliceOf returns a slice which contains the element.
 func SliceOf(in interface{}) interface{} {
 	value := reflect.ValueOf(in)
@@ -147,6 +155,36 @@ func SliceOf(in interface{}) interface{} {
 	slice.Elem().Set(sliceValue)
 
 	return slice.Elem().Interface()
+}
+
+// Any returns true if any element of the iterable is not empty. If the iterable is empty, return False.
+func Any(objs ...interface{}) bool {
+	if len(objs) == 0 {
+		return false
+	}
+
+	for _, obj := range objs {
+		if !IsEmpty(obj) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// All returns true if all elements of the iterable are not empty (or if the iterable is empty)
+func All(objs ...interface{}) bool {
+	if len(objs) == 0 {
+		return true
+	}
+
+	for _, obj := range objs {
+		if IsEmpty(obj) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // IsEmpty returns if the object is considered as empty or not.
@@ -214,8 +252,6 @@ func ZeroOf(in interface{}) interface{} {
 
 // RandomInt generates a random int, based on a min and max values
 func RandomInt(min, max int) int {
-	rand.Seed(time.Now().UTC().UnixNano())
-
 	return min + rand.Intn(max-min)
 }
 
