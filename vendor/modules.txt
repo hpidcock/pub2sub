@@ -15,7 +15,7 @@ github.com/davecgh/go-spew/spew
 github.com/fatih/camelcase
 # github.com/fatih/structs v1.1.0
 github.com/fatih/structs
-# github.com/go-redis/redis v6.14.2+incompatible
+# github.com/go-redis/redis v6.14.3-0.20181113131900-effc0c507aa2+incompatible
 github.com/go-redis/redis
 github.com/go-redis/redis/internal
 github.com/go-redis/redis/internal/consistenthash

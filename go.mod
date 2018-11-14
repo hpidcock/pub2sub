@@ -7,7 +7,7 @@ require (
 	github.com/coreos/etcd v3.3.10+incompatible
 	github.com/fatih/camelcase v1.0.0 // indirect
 	github.com/fatih/structs v1.1.0 // indirect
-	github.com/go-redis/redis v6.14.2+incompatible
+	github.com/go-redis/redis v6.14.3-0.20181113131900-effc0c507aa2+incompatible
 	github.com/gobuffalo/packr v1.20.0
 	github.com/gogo/protobuf v1.1.1
 	github.com/golang/lint v0.0.0-20181026193005-c67002cb31c3 // indirect

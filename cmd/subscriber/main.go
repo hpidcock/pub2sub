@@ -54,7 +54,9 @@ func (p *Provider) runGRPCServer(ctx context.Context) error {
 		return err
 	}
 
-	server := grpc.NewServer()
+	server := grpc.NewServer(
+		grpc.WriteBufferSize(0),
+	)
 	pb.RegisterSubscribeServiceServer(server, p)
 	pb.RegisterSubscribeInternalServiceServer(server, p)
 

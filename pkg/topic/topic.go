@@ -268,25 +268,24 @@ func (m *Controller) ReadMessages(ctx context.Context,
 	}
 
 	// TODO: Batch reads on slotid
-	res, err := m.redisClient.XReadN(int64(limit),
-		channelKey, lastMessageID).Result()
+	res, err := m.redisClient.XRead(&redis.XReadArgs{
+		Count:   int64(limit),
+		Streams: []string{channelKey, lastMessageID},
+	}).Result()
 	if err == redis.Nil {
 		return nil, nil
 	} else if err != nil {
 		return nil, err
 	}
 
-	entries, ok := res[channelKey]
-	if ok == false {
-		return nil, nil
-	}
+	entries := res[0].Messages
 
 	var messages []MessageEntry
 	for _, entry := range entries {
-		value, _ := entry.Fields["p"]
+		value, _ := entry.Values["p"]
 		messages = append(messages, MessageEntry{
-			ID:      entry.Id,
-			Payload: []byte(value),
+			ID:      entry.ID,
+			Payload: []byte(value.(string)),
 		})
 	}
 

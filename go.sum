@@ -20,6 +20,8 @@ github.com/fatih/structs v1.1.0/go.mod h1:9NiDSp5zOcgEDl+j00MP/WkGVPOlPRLejGD8Ga
 github.com/go-redis/redis v0.0.0-20180611093903-36bbfaf4135b/go.mod h1:NAIEuMOZ/fxfXJIrKDQDz8wamY7mA7PouImQ2Jvg6kA=
 github.com/go-redis/redis v6.14.2+incompatible h1:UE9pLhzmWf+xHNmZsoccjXosPicuiNaInPgym8nzfg0=
 github.com/go-redis/redis v6.14.2+incompatible/go.mod h1:NAIEuMOZ/fxfXJIrKDQDz8wamY7mA7PouImQ2Jvg6kA=
+github.com/go-redis/redis v6.14.3-0.20181113131900-effc0c507aa2+incompatible h1:3KUPPPl7DeZifb+PgekC3/sBsA4LwoRPTs32G/HbCuk=
+github.com/go-redis/redis v6.14.3-0.20181113131900-effc0c507aa2+incompatible/go.mod h1:NAIEuMOZ/fxfXJIrKDQDz8wamY7mA7PouImQ2Jvg6kA=
 github.com/gobuffalo/envy v1.6.6/go.mod h1:N+GkhhZ/93bGZc6ZKhJLP6+m+tCNPKwgSpH9kaifseQ=
 github.com/gobuffalo/envy v1.6.8 h1:ExvxBMO2VoANkwLkQcY8yTB73YkkIOfi9CyinoE+vyk=
 github.com/gobuffalo/envy v1.6.8/go.mod h1:N+GkhhZ/93bGZc6ZKhJLP6+m+tCNPKwgSpH9kaifseQ=
