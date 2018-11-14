@@ -63,7 +63,7 @@ func (cc *ClientCache) Connect(raddr string) (*grpc.ClientConn, error) {
 		}
 	}
 
-	conn, err = grpc.Dial(raddr, grpc.WithInsecure(), grpc.WithWriteBufferSize(0))
+	conn, err = grpc.Dial(raddr, grpc.WithInsecure())
 	if err != nil {
 		cc.c.Delete(raddr)
 		return nil, err

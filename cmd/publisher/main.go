@@ -46,9 +46,7 @@ func (p *Provider) runGRPCServer(ctx context.Context) error {
 		return err
 	}
 
-	server := grpc.NewServer(
-		grpc.WriteBufferSize(0),
-	)
+	server := grpc.NewServer()
 	pb.RegisterPublishServiceServer(server, p)
 
 	closeChan := make(chan struct{})
