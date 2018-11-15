@@ -8,7 +8,7 @@ require (
 	github.com/fatih/camelcase v1.0.0 // indirect
 	github.com/fatih/structs v1.1.0 // indirect
 	github.com/go-redis/redis v6.14.3-0.20181113131900-effc0c507aa2+incompatible
-	github.com/gobuffalo/packr v1.20.0
+	github.com/gobuffalo/packr v1.21.0
 	github.com/gogo/protobuf v1.1.1
 	github.com/golang/lint v0.0.0-20181026193005-c67002cb31c3 // indirect
 	github.com/google/uuid v1.0.0
@@ -21,11 +21,11 @@ require (
 	github.com/stretchr/testify v1.2.2
 	github.com/thoas/go-funk v0.0.0-20181020164546-fbae87fb5b5c
 	golang.org/x/lint v0.0.0-20181026193005-c67002cb31c3 // indirect
-	golang.org/x/net v0.0.0-20181113165502-88d92db4c548
+	golang.org/x/net v0.0.0-20181114220301-adae6a3d119a
 	golang.org/x/oauth2 v0.0.0-20181106182150-f42d05182288 // indirect
 	golang.org/x/sync v0.0.0-20181108010431-42b317875d0f
 	golang.org/x/sys v0.0.0-20181107165924-66b7b1311ac8 // indirect
-	golang.org/x/tools v0.0.0-20181113200934-7e59e591a261 // indirect
+	golang.org/x/tools v0.0.0-20181114190951-94339b83286c // indirect
 	google.golang.org/appengine v1.3.0 // indirect
 	google.golang.org/genproto v0.0.0-20181109154231-b5d43981345b // indirect
 	google.golang.org/grpc v1.16.0

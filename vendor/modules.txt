@@ -24,11 +24,11 @@ github.com/go-redis/redis/internal/pool
 github.com/go-redis/redis/internal/proto
 github.com/go-redis/redis/internal/singleflight
 github.com/go-redis/redis/internal/util
-# github.com/gobuffalo/envy v1.6.8
+# github.com/gobuffalo/envy v1.6.9
 github.com/gobuffalo/envy
-# github.com/gobuffalo/packd v0.0.0-20181111195323-b2e760a5f0ff
+# github.com/gobuffalo/packd v0.0.0-20181114190715-f25c5d2471d7
 github.com/gobuffalo/packd
-# github.com/gobuffalo/packr v1.20.0
+# github.com/gobuffalo/packr v1.21.0
 github.com/gobuffalo/packr
 # github.com/gogo/protobuf v1.1.1
 github.com/gogo/protobuf/proto
@@ -64,7 +64,7 @@ github.com/pmezard/go-difflib/difflib
 github.com/stretchr/testify/assert
 # github.com/thoas/go-funk v0.0.0-20181020164546-fbae87fb5b5c
 github.com/thoas/go-funk
-# golang.org/x/net v0.0.0-20181113165502-88d92db4c548
+# golang.org/x/net v0.0.0-20181114220301-adae6a3d119a
 golang.org/x/net/context
 golang.org/x/net/trace
 golang.org/x/net/internal/timeseries

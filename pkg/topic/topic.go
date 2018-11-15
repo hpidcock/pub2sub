@@ -271,6 +271,7 @@ func (m *Controller) ReadMessages(ctx context.Context,
 	res, err := m.redisClient.XRead(&redis.XReadArgs{
 		Count:   int64(limit),
 		Streams: []string{channelKey, lastMessageID},
+		Block:   -1,
 	}).Result()
 	if err == redis.Nil {
 		return nil, nil

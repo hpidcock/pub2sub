@@ -258,14 +258,21 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 	}
 
 	// TODO: Auto-optimize based on number of connections
-	pullBackoff := backoff.NewExponentialBackOff()
-	pullBackoff.InitialInterval = 500 * time.Millisecond
-	pullBackoff.MaxInterval = 5 * time.Second
-	pullBackoff.Multiplier = 2
-	pullBackoff.RandomizationFactor = 0.25
-	pullBackoff.MaxElapsedTime = time.Duration(math.MaxInt64)
-	pullTimer := time.NewTimer(0)
-	defer pullTimer.Stop()
+	var pullBackoff backoff.BackOff
+	var pullTimerChan <-chan time.Time
+	var pullTimer *time.Timer
+	if reliable {
+		exp := backoff.NewExponentialBackOff()
+		exp.InitialInterval = 500 * time.Millisecond
+		exp.MaxInterval = 5 * time.Second
+		exp.Multiplier = 2
+		exp.RandomizationFactor = 0.25
+		exp.MaxElapsedTime = time.Duration(math.MaxInt64)
+		pullBackoff = exp
+		pullTimer = time.NewTimer(0)
+		defer pullTimer.Stop()
+		pullTimerChan = pullTimer.C
+	}
 	lastReadMessage := ""
 
 	for {
@@ -277,7 +284,7 @@ func (p *Provider) Stream(req *pb.StreamRequest,
 			if err != nil {
 				return err
 			}
-		case <-pullTimer.C:
+		case <-pullTimerChan:
 			// TODO: handle limit config
 			messages, err := p.topicController.ReadMessages(ctx, channelID, lastReadMessage, 10)
 			if err != nil {
